@@ -5,7 +5,7 @@
 ## Stories
 
 ### E07-S01 Define the update manifest
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Manifest includes schema version, bundle version, hash, signature, signing key ID, minimum client version, and source metadata.
@@ -37,4 +37,3 @@
 **Acceptance criteria**
 - Prototype test-key workflow is documented.
 - Public-beta release-key storage and rotation requirements are defined before release.
-
