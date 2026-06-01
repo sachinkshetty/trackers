@@ -26,7 +26,7 @@
 - Findings group by browser, profile, site, category, and confidence.
 
 ### E06-S04 Build cleanup preview flow
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Review, Balanced, and Aggressive modes are selectable.
