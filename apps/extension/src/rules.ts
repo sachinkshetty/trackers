@@ -15,11 +15,32 @@ export interface ManifestRule {
   };
 }
 
+export type ProtectionLevel = "standard" | "strict";
+
+export const STRICT_MODE_WARNING =
+  "Strict mode may break site functionality. Pause protection for a site if needed.";
+
 export function buildStandardRules(trackers: TrackerRule[]): ManifestRule[] {
+  return buildRules(trackers, 1);
+}
+
+export function buildRulesForLevel(
+  level: ProtectionLevel,
+  standardTrackers: TrackerRule[],
+  strictOnlyTrackers: TrackerRule[],
+): ManifestRule[] {
+  const standardRules = buildStandardRules(standardTrackers);
+  if (level === "standard") {
+    return standardRules;
+  }
+  return [...standardRules, ...buildRules(strictOnlyTrackers, 100001)];
+}
+
+function buildRules(trackers: TrackerRule[], firstId: number): ManifestRule[] {
   return [...trackers]
     .sort((left, right) => left.domain.localeCompare(right.domain))
     .map((tracker, index) => ({
-      id: index + 1,
+      id: firstId + index,
       priority: 1,
       action: { type: "block" },
       condition: {
