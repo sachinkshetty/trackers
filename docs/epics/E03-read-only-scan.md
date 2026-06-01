@@ -20,7 +20,7 @@
 - Locked and malformed databases produce scoped warnings.
 
 ### E03-S03 Inventory supported site storage
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Local storage, IndexedDB, cache, history, and service-worker presence are reported where supported.
