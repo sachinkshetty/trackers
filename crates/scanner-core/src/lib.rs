@@ -240,6 +240,74 @@ fn cleanup_action_for(finding: &Finding) -> Result<CleanupAction, CleanupPlanErr
     })
 }
 
+fn profile_artifact_path(artifact_type: ArtifactType) -> Option<&'static str> {
+    match artifact_type {
+        ArtifactType::LocalStorage => Some("Local Storage"),
+        ArtifactType::IndexedDb => Some("IndexedDB"),
+        ArtifactType::Cache => Some("Cache"),
+        ArtifactType::History => Some("History"),
+        ArtifactType::ServiceWorker => Some("Service Worker"),
+        ArtifactType::Cookie | ArtifactType::Extension | ArtifactType::Setting => None,
+    }
+}
+
+pub trait ResourceLockProbe {
+    fn is_locked(&self, target: &CleanupTarget) -> bool;
+}
+
+pub trait BrowserCloser {
+    fn close_browsers(&self) -> Result<(), String>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockResolution {
+    RetryAfterManualClose,
+    SkipLocked,
+    RequestAutomaticClose { confirmed: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreflightResult {
+    Ready { skipped_ids: Vec<String> },
+    RetryAfterClose,
+    ConfirmationRequired { locked_ids: Vec<String> },
+    BrowserCloseFailed { message: String },
+}
+
+pub fn preflight_locked_resources(
+    plan: &CleanupPlan,
+    probe: &impl ResourceLockProbe,
+    resolution: LockResolution,
+    closer: &impl BrowserCloser,
+) -> PreflightResult {
+    let locked_ids = plan
+        .actions
+        .iter()
+        .filter(|action| action.requires_browser_closed && probe.is_locked(&action.target))
+        .map(|action| action.id.clone())
+        .collect::<Vec<_>>();
+    if locked_ids.is_empty() {
+        return PreflightResult::Ready {
+            skipped_ids: vec![],
+        };
+    }
+    match resolution {
+        LockResolution::RetryAfterManualClose => PreflightResult::RetryAfterClose,
+        LockResolution::SkipLocked => PreflightResult::Ready {
+            skipped_ids: locked_ids,
+        },
+        LockResolution::RequestAutomaticClose { confirmed: false } => {
+            PreflightResult::ConfirmationRequired { locked_ids }
+        }
+        LockResolution::RequestAutomaticClose { confirmed: true } => {
+            match closer.close_browsers() {
+                Ok(()) => PreflightResult::RetryAfterClose,
+                Err(message) => PreflightResult::BrowserCloseFailed { message },
+            }
+        }
+    }
+}
+
 pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
     discover_profiles(BrowserFamily::Chrome, root)
 }
@@ -1303,15 +1371,83 @@ mod tests {
                 .any(|warning| warning.contains("functionality"))
         );
     }
-}
 
-fn profile_artifact_path(artifact_type: ArtifactType) -> Option<&'static str> {
-    match artifact_type {
-        ArtifactType::LocalStorage => Some("Local Storage"),
-        ArtifactType::IndexedDb => Some("IndexedDB"),
-        ArtifactType::Cache => Some("Cache"),
-        ArtifactType::History => Some("History"),
-        ArtifactType::ServiceWorker => Some("Service Worker"),
-        ArtifactType::Cookie | ArtifactType::Extension | ArtifactType::Setting => None,
+    struct AlwaysLocked;
+
+    impl ResourceLockProbe for AlwaysLocked {
+        fn is_locked(&self, _target: &CleanupTarget) -> bool {
+            true
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingCloser {
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl BrowserCloser for RecordingCloser {
+        fn close_browsers(&self) -> Result<(), String> {
+            self.calls.set(self.calls.get() + 1);
+            Ok(())
+        }
+    }
+
+    fn one_action_plan() -> CleanupPlan {
+        CleanupPlan {
+            mode: CleanupMode::Review,
+            actions: vec![CleanupAction {
+                id: "cookie:analytics.example".into(),
+                artifact_type: ArtifactType::Cookie,
+                target: CleanupTarget::CookieHost {
+                    profile_path: r"C:\Chrome\User Data\Default".into(),
+                    host: "analytics.example".into(),
+                },
+                requires_browser_closed: true,
+            }],
+            warnings: vec![],
+            estimated_action_count: 1,
+        }
+    }
+
+    #[test]
+    fn locked_preflight_never_closes_browsers_without_confirmation() {
+        let closer = RecordingCloser::default();
+
+        let result = preflight_locked_resources(
+            &one_action_plan(),
+            &AlwaysLocked,
+            LockResolution::RequestAutomaticClose { confirmed: false },
+            &closer,
+        );
+
+        assert_eq!(closer.calls.get(), 0);
+        assert!(matches!(
+            result,
+            PreflightResult::ConfirmationRequired { .. }
+        ));
+    }
+
+    #[test]
+    fn locked_preflight_can_skip_or_confirm_automatic_close() {
+        let closer = RecordingCloser::default();
+
+        let skipped = preflight_locked_resources(
+            &one_action_plan(),
+            &AlwaysLocked,
+            LockResolution::SkipLocked,
+            &closer,
+        );
+        assert!(
+            matches!(skipped, PreflightResult::Ready { skipped_ids } if skipped_ids == vec!["cookie:analytics.example"])
+        );
+
+        let closed = preflight_locked_resources(
+            &one_action_plan(),
+            &AlwaysLocked,
+            LockResolution::RequestAutomaticClose { confirmed: true },
+            &closer,
+        );
+        assert!(matches!(closed, PreflightResult::RetryAfterClose));
+        assert_eq!(closer.calls.get(), 1);
     }
 }
