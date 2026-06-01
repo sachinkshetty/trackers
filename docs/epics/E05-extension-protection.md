@@ -12,7 +12,7 @@
 - Starter rules load from a packaged local artifact.
 
 ### E05-S02 Build Standard-mode blocking rules
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Known tracker rules compile to valid Manifest V3 rules.
@@ -45,4 +45,3 @@
 **Acceptance criteria**
 - Sideloaded builds pass controlled-page tests in current Chrome and Edge.
 - Browser-specific packaging differences are documented.
-
