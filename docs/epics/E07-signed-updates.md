@@ -18,7 +18,7 @@
 - Verification has malformed-input tests.
 
 ### E07-S03 Implement last-known-good activation
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - New bundle activates only after verification.

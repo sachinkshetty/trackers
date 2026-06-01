@@ -123,6 +123,42 @@ pub struct VerifiedUpdateBundle {
     pub bundle: RuleBundle,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpdateActivationState {
+    active: Option<VerifiedUpdateBundle>,
+    last_known_good: Option<VerifiedUpdateBundle>,
+}
+
+impl UpdateActivationState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn active_bundle(&self) -> Option<&VerifiedUpdateBundle> {
+        self.active.as_ref()
+    }
+
+    pub fn last_known_good_bundle(&self) -> Option<&VerifiedUpdateBundle> {
+        self.last_known_good.as_ref()
+    }
+
+    pub fn activate_verified(&mut self, bundle: VerifiedUpdateBundle) -> &VerifiedUpdateBundle {
+        self.last_known_good = Some(bundle.clone());
+        self.active = Some(bundle);
+        self.active.as_ref().expect("active bundle was just set")
+    }
+
+    pub fn verify_and_activate(
+        &mut self,
+        manifest_json: &str,
+        bundle_json: &str,
+        trusted_keys: &[TrustedSigningKey],
+    ) -> Result<&VerifiedUpdateBundle, UpdateVerificationError> {
+        let bundle = verify_update_bundle(manifest_json, bundle_json, trusted_keys)?;
+        Ok(self.activate_verified(bundle))
+    }
+}
+
 #[derive(Debug)]
 pub enum UpdateVerificationError {
     Manifest(UpdateManifestError),
@@ -311,6 +347,28 @@ mod tests {
         .to_string()
     }
 
+    fn verified_bundle() -> VerifiedUpdateBundle {
+        let bundle_json = bundle_json();
+        let hash = format!("sha256:{}", hash_bundle(bundle_json.as_bytes()));
+        let key = signing_key();
+        let signature = key.sign(hash.as_bytes());
+        let manifest = make_manifest(
+            hash,
+            format!(
+                "ed25519:{}",
+                base64::engine::general_purpose::STANDARD.encode(signature.to_bytes())
+            ),
+            trusted_key().key_id,
+        );
+
+        verify_update_bundle(
+            &serde_json::to_string(&manifest).unwrap(),
+            &bundle_json,
+            &[trusted_key()],
+        )
+        .unwrap()
+    }
+
     #[test]
     fn verify_update_bundle_accepts_matching_hash_and_signature() {
         let bundle_json = bundle_json();
@@ -430,5 +488,38 @@ mod tests {
             error.to_string(),
             "unsupported update-manifest schema version 9; supported version is 1"
         );
+    }
+
+    #[test]
+    fn activation_state_stores_last_known_good_bundle() {
+        let mut state = UpdateActivationState::new();
+        let verified = verified_bundle();
+
+        state.activate_verified(verified.clone());
+
+        assert_eq!(state.active_bundle(), Some(&verified));
+        assert_eq!(state.last_known_good_bundle(), Some(&verified));
+    }
+
+    #[test]
+    fn failed_activation_keeps_previous_verified_bundle() {
+        let mut state = UpdateActivationState::new();
+        let verified = verified_bundle();
+        state.activate_verified(verified.clone());
+
+        let bad_manifest = make_manifest(
+            "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".into(),
+            "ed25519:AA==".into(),
+            trusted_key().key_id,
+        );
+        let result = state.verify_and_activate(
+            &serde_json::to_string(&bad_manifest).unwrap(),
+            &bundle_json(),
+            &[trusted_key()],
+        );
+
+        assert!(result.is_err());
+        assert_eq!(state.active_bundle(), Some(&verified));
+        assert_eq!(state.last_known_good_bundle(), Some(&verified));
     }
 }
