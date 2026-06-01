@@ -6,7 +6,9 @@
   "scripts": {
     "check": "tsc --noEmit",
     "build": "tsc",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && npm run package:browsers && node --test tests/*.test.mjs",
+    "package:browsers": "node scripts/package-browsers.mjs",
+    "validate:packages": "npm run build && npm run package:browsers && node scripts/validate-packages.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.0"

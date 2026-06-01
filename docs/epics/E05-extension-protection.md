@@ -40,7 +40,7 @@
 - Counts do not leave the browser unless diagnostics are manually submitted.
 
 ### E05-S06 Validate Chrome and Edge packages
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Sideloaded builds pass controlled-page tests in current Chrome and Edge.
