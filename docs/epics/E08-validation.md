@@ -19,7 +19,7 @@
 - Aggressive cleanup requires explicit confirmation.
 
 ### E08-S03 Validate locked-file workflows
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Retry, confirmed automatic close, and skip paths are tested.
