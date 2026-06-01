@@ -159,6 +159,35 @@ impl UpdateActivationState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateBundleResolution {
+    Verified(VerifiedUpdateBundle),
+    EmbeddedFallback(RuleBundle),
+}
+
+pub fn resolve_update_bundle(active: Option<VerifiedUpdateBundle>) -> UpdateBundleResolution {
+    match active {
+        Some(bundle) => UpdateBundleResolution::Verified(bundle),
+        None => UpdateBundleResolution::EmbeddedFallback(embedded_starter_rule_bundle()),
+    }
+}
+
+pub fn embedded_starter_rule_bundle() -> RuleBundle {
+    RuleBundle {
+        schema_version: rule_format::SUPPORTED_SCHEMA_VERSION,
+        bundle_version: "embedded-starter".into(),
+        generated_at: "2026-06-01T00:00:00Z".into(),
+        sources: vec![rule_format::RuleSource {
+            id: "supplemental".into(),
+            name: "Browser Tracker Cleaner supplemental rules".into(),
+            url: "https://github.com/sachinkshetty/trackers/tree/main/rules/supplemental".into(),
+            license: "MIT OR Apache-2.0".into(),
+            attribution: "Browser Tracker Cleaner contributors".into(),
+        }],
+        rules: vec![],
+    }
+}
+
 #[derive(Debug)]
 pub enum UpdateVerificationError {
     Manifest(UpdateManifestError),
@@ -521,5 +550,27 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(state.active_bundle(), Some(&verified));
         assert_eq!(state.last_known_good_bundle(), Some(&verified));
+    }
+
+    #[test]
+    fn resolve_update_bundle_uses_embedded_fallback_when_no_external_bundle_exists() {
+        let resolution = resolve_update_bundle(None);
+
+        assert!(matches!(
+            resolution,
+            UpdateBundleResolution::EmbeddedFallback(_)
+        ));
+        assert_eq!(
+            embedded_starter_rule_bundle().bundle_version,
+            "embedded-starter"
+        );
+    }
+
+    #[test]
+    fn resolve_update_bundle_prefers_verified_bundle() {
+        let verified = verified_bundle();
+        let resolution = resolve_update_bundle(Some(verified.clone()));
+
+        assert_eq!(resolution, UpdateBundleResolution::Verified(verified));
     }
 }

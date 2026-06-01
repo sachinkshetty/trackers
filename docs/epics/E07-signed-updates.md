@@ -25,7 +25,7 @@
 - Previous verified bundle remains available after failed activation.
 
 ### E07-S04 Add embedded starter-bundle fallback
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - App and extension remain functional offline.
