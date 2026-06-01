@@ -5,7 +5,7 @@
 ## Stories
 
 ### E08-S01 Create disposable browser-profile fixtures
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Fixtures include multiple profiles, seeded cookies, storage artifacts, extensions, and malformed inputs.
@@ -38,4 +38,3 @@
 **Acceptance criteria**
 - Report maps results to prototype success metrics.
 - Known limitations and deferred work are documented before daily-use beta.
-
