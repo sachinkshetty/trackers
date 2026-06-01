@@ -12,7 +12,7 @@
 - Partial failures are represented explicitly.
 
 ### E03-S02 Scan cookies from copied databases
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Scanner uses a safe read strategy for SQLite data.
