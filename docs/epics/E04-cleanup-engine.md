@@ -33,7 +33,7 @@
 - Sign-out and site-functionality warnings are always present.
 
 ### E04-S05 Handle locked browser resources
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Locked targets are detected before mutation.
