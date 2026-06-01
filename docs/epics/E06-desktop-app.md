@@ -12,7 +12,7 @@
 - Scanner core is invoked through narrow commands.
 
 ### E06-S02 Build dashboard and scan progress
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - User can start a scan and see per-profile progress and warnings.
