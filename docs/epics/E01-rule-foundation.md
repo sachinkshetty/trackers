@@ -36,7 +36,7 @@ Build normalized desktop and Manifest V3 rule artifacts.
 - Extension rule IDs are stable.
 
 ### E01-S04 Implement local classification
-**Status:** todo
+**Status:** done
 
 Match scanned domains against verified rules and return evidence.
 

@@ -60,6 +60,9 @@ version = "0.1.0"
 [[package]]
 name = "scanner-core"
 version = "0.1.0"
+dependencies = [
+ "rule-format",
+]
 
 [[package]]
 name = "serde"
