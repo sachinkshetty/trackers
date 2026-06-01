@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "supplemental",
+      "name": "Browser Tracker Cleaner supplemental rules",
+      "url": "https://github.com/sachinkshetty/trackers/tree/main/rules/supplemental",
+      "license": "MIT OR Apache-2.0",
+      "attribution": "Browser Tracker Cleaner contributors",
+      "update_method": "Reviewed pull requests to rules/supplemental/",
+      "status": "selected"
+    },
+    {
+      "id": "easyprivacy",
+      "name": "EasyPrivacy",
+      "url": "https://easylist.to/pages/licence.html",
+      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0-or-later",
+      "attribution": "The EasyList authors (https://easylist.to/)",
+      "update_method": "Fetch an official EasyPrivacy subscription and compile supported rules",
+      "status": "deferred-share-alike-review"
+    },
+    {
+      "id": "adguard-filters",
+      "name": "AdGuard Filters",
+      "url": "https://github.com/AdguardTeam/AdguardFilters",
+      "license": "GPL-3.0",
+      "attribution": "Preserve required notices and license terms",
+      "update_method": "Fetch reviewed privacy-filter inputs from the upstream repository",
+      "status": "deferred-gpl-review"
+    },
+    {
+      "id": "duckduckgo-tracker-blocklists",
+      "name": "DuckDuckGo Tracker Blocklists",
+      "url": "https://github.com/duckduckgo/tracker-blocklists",
+      "license": "CC-BY-NC-SA-4.0",
+      "attribution": "Duck Duck Go, Inc.",
+      "update_method": "Fetch published tracker-blocklist artifacts",
+      "status": "excluded-noncommercial"
+    }
+  ]
+}
+

@@ -1,0 +1,11 @@
+{
+  "source": {
+    "id": "supplemental",
+    "name": "Browser Tracker Cleaner supplemental rules",
+    "url": "https://github.com/sachinkshetty/trackers/tree/main/rules/supplemental",
+    "license": "MIT OR Apache-2.0",
+    "attribution": "Browser Tracker Cleaner contributors"
+  },
+  "rules": []
+}
+
