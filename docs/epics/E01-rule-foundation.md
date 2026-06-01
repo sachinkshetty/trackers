@@ -17,7 +17,7 @@ metadata.
 - Unsupported schema versions fail clearly.
 
 ### E01-S02 Add reviewed supplemental-rule input
-**Status:** todo
+**Status:** done
 
 Define the human-editable format for product-specific rules.
 
