@@ -26,7 +26,7 @@
 - No browser process is closed implicitly.
 
 ### E08-S04 Validate extension behavior
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Standard and Strict modes, counts, pauses, and exceptions work in Chrome and Edge.

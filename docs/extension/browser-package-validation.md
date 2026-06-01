@@ -52,3 +52,9 @@ For each browser:
 4. Add a temporary site exception and confirm protection pauses for that site.
 5. Confirm blocked counters remain local and group results by category.
 
+## Recovery Path
+
+If a fixture page breaks in Strict mode, switch back to Standard mode or pause
+protection for the current site before reloading the page. Keep the exception
+local and temporary unless the breakage is known to be permanent.
+
