@@ -30,6 +30,51 @@ pub struct DiscoveryResult {
     pub warnings: Vec<DiscoveryWarning>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactType {
+    Cookie,
+    LocalStorage,
+    IndexedDb,
+    Cache,
+    History,
+    ServiceWorker,
+    Extension,
+    Setting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupImpact {
+    Low,
+    MayRemovePreferences,
+    MaySignOut,
+    ReviewRequired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Finding {
+    pub profile: BrowserProfile,
+    pub artifact_type: ArtifactType,
+    pub site: Option<String>,
+    pub evidence_summary: String,
+    pub confidence: Option<Confidence>,
+    pub cleanup_impact: CleanupImpact,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanWarning {
+    pub profile_path: PathBuf,
+    pub artifact_type: ArtifactType,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanResult {
+    pub findings: Vec<Finding>,
+    pub warnings: Vec<ScanWarning>,
+}
+
 pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
     discover_profiles(BrowserFamily::Chrome, root)
 }
@@ -301,5 +346,35 @@ mod tests {
 
         assert!(result.profiles.is_empty());
         assert_eq!(result.warnings[0].browser, BrowserFamily::Edge);
+    }
+
+    #[test]
+    fn scan_result_serializes_findings_and_partial_failures() {
+        let result = ScanResult {
+            findings: vec![Finding {
+                profile: BrowserProfile {
+                    browser: BrowserFamily::Chrome,
+                    installation_root: r"C:\Chrome\User Data".into(),
+                    profile_name: "Default".into(),
+                    profile_path: r"C:\Chrome\User Data\Default".into(),
+                },
+                artifact_type: ArtifactType::Cookie,
+                site: Some("analytics.example".into()),
+                evidence_summary: "cookie host matched tracker rule".into(),
+                confidence: Some(Confidence::High),
+                cleanup_impact: CleanupImpact::MaySignOut,
+            }],
+            warnings: vec![ScanWarning {
+                profile_path: r"C:\Chrome\User Data\Default".into(),
+                artifact_type: ArtifactType::Cookie,
+                message: "cookie database could not be copied".into(),
+            }],
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+
+        assert!(json.contains(r#""artifact_type":"cookie""#));
+        assert!(json.contains(r#""cleanup_impact":"may_sign_out""#));
+        assert!(json.contains(r#""message":"cookie database could not be copied""#));
     }
 }
