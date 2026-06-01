@@ -19,7 +19,7 @@
 - Scan cancellation leaves profiles untouched.
 
 ### E06-S03 Build layered scan results
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Default summary, expandable details, and optional expert view are available.
