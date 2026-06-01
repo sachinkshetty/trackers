@@ -5,7 +5,7 @@
 ## Stories
 
 ### E02-S01 Define browser and profile models
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Models identify browser family, installation, profile name, path, and discovery warnings.
@@ -31,4 +31,3 @@
 **Acceptance criteria**
 - CLI prints structured JSON for automation.
 - CLI performs no writes to discovered profiles.
-

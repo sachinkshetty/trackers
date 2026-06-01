@@ -1,4 +1,34 @@
 use rule_format::{Confidence, RuleBundle, TrackerCategory};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserFamily {
+    Chrome,
+    Edge,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserProfile {
+    pub browser: BrowserFamily,
+    pub installation_root: PathBuf,
+    pub profile_name: String,
+    pub profile_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveryWarning {
+    pub browser: BrowserFamily,
+    pub root: PathBuf,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveryResult {
+    pub profiles: Vec<BrowserProfile>,
+    pub warnings: Vec<DiscoveryWarning>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Classification {
@@ -89,5 +119,44 @@ mod tests {
     #[test]
     fn suffix_without_label_boundary_is_not_classified() {
         assert_eq!(classify_domain(&bundle(), "notexample.test"), None);
+    }
+
+    #[test]
+    fn browser_profile_model_keeps_paths_profile_scoped() {
+        let profile = BrowserProfile {
+            browser: BrowserFamily::Chrome,
+            installation_root: r"C:\Users\test\AppData\Local\Google\Chrome\User Data".into(),
+            profile_name: "Profile 1".into(),
+            profile_path: r"C:\Users\test\AppData\Local\Google\Chrome\User Data\Profile 1".into(),
+        };
+
+        assert_eq!(profile.browser, BrowserFamily::Chrome);
+        assert_eq!(profile.profile_name, "Profile 1");
+        assert!(profile.profile_path.ends_with("Profile 1"));
+        assert_ne!(profile.profile_path, profile.installation_root);
+    }
+
+    #[test]
+    fn discovery_result_serializes_profiles_and_warnings() {
+        let result = DiscoveryResult {
+            profiles: vec![BrowserProfile {
+                browser: BrowserFamily::Edge,
+                installation_root: r"C:\Users\test\AppData\Local\Microsoft\Edge\User Data".into(),
+                profile_name: "Default".into(),
+                profile_path: r"C:\Users\test\AppData\Local\Microsoft\Edge\User Data\Default"
+                    .into(),
+            }],
+            warnings: vec![DiscoveryWarning {
+                browser: BrowserFamily::Chrome,
+                root: r"C:\missing".into(),
+                message: "profile root does not exist".into(),
+            }],
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+
+        assert!(json.contains(r#""browser":"edge""#));
+        assert!(json.contains(r#""profile_name":"Default""#));
+        assert!(json.contains(r#""message":"profile root does not exist""#));
     }
 }
