@@ -11,7 +11,7 @@
 - Manifest includes schema version, bundle version, hash, signature, signing key ID, minimum client version, and source metadata.
 
 ### E07-S02 Verify hashes and signatures
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Invalid hashes, signatures, keys, and schema versions are rejected.
