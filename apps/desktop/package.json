@@ -6,6 +6,7 @@
     "check": "node --check src/main.js",
     "dev": "vite --port 1420",
     "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

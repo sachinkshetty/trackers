@@ -46,7 +46,18 @@ pub struct ScanRunResult {
     pub completed_profiles: usize,
     pub total_profiles: usize,
     pub cancelled: bool,
+    pub profiles: Vec<ProfileScanSummary>,
     pub findings: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileScanSummary {
+    pub browser: String,
+    pub profile_name: String,
+    pub profile_path: std::path::PathBuf,
+    pub findings: Vec<Finding>,
     pub warnings: Vec<String>,
 }
 
@@ -88,6 +99,17 @@ where
 
         let scan = scan_profile(&profile, bundle);
         result.completed_profiles += 1;
+        result.profiles.push(ProfileScanSummary {
+            browser: format!("{:?}", profile.browser),
+            profile_name: profile.profile_name.clone(),
+            profile_path: profile.profile_path.clone(),
+            findings: scan.findings.clone(),
+            warnings: scan
+                .warnings
+                .iter()
+                .map(|warning| warning.message.clone())
+                .collect(),
+        });
         result.findings.push(format!(
             "{}: {} finding(s)",
             profile.profile_name,
