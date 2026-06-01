@@ -19,7 +19,7 @@
 - Invalid or stale selections fail safely.
 
 ### E04-S03 Generate Balanced-mode plans
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Only high-confidence tracker artifacts are selected automatically.
