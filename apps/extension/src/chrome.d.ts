@@ -7,9 +7,8 @@ declare namespace chrome {
 
   namespace storage {
     namespace local {
-      function get(key: string): Promise<Record<string, unknown>>;
+      function get(key: string | string[]): Promise<Record<string, unknown>>;
       function set(items: Record<string, unknown>): Promise<void>;
     }
   }
 }
-
