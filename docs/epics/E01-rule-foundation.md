@@ -45,7 +45,7 @@ Match scanned domains against verified rules and return evidence.
 - Classification includes category, confidence, and matched rule IDs.
 
 ### E01-S05 Perform upstream list license review
-**Status:** todo
+**Status:** done
 
 Select initial public filter-list inputs only after documenting compatibility.
 
