@@ -32,8 +32,10 @@
 - Embedded fallback is used when no external verified bundle exists.
 
 ### E07-S05 Document key custody and rotation
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Prototype test-key workflow is documented.
 - Public-beta release-key storage and rotation requirements are defined before release.
+
+Implementation note: see [docs/updates/key-custody-and-rotation.md](../updates/key-custody-and-rotation.md).
