@@ -33,8 +33,10 @@
 - Expected site-breakage recovery path is documented.
 
 ### E08-S05 Write milestone report
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Report maps results to prototype success metrics.
 - Known limitations and deferred work are documented before daily-use beta.
+
+Implementation note: see [docs/reports/e08-milestone-report.md](../reports/e08-milestone-report.md).
