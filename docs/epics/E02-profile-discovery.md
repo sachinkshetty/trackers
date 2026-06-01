@@ -12,7 +12,7 @@
 - Paths remain profile-scoped.
 
 ### E02-S02 Discover standard Chrome profiles
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Default and named profiles are discovered.

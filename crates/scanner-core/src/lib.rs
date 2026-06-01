@@ -30,6 +30,53 @@ pub struct DiscoveryResult {
     pub warnings: Vec<DiscoveryWarning>,
 }
 
+pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
+    discover_profiles(BrowserFamily::Chrome, root)
+}
+
+fn discover_profiles(browser: BrowserFamily, root: &std::path::Path) -> DiscoveryResult {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) => {
+            let message = if error.kind() == std::io::ErrorKind::NotFound {
+                "profile root does not exist".into()
+            } else {
+                format!("could not read profile root: {error}")
+            };
+            return DiscoveryResult {
+                profiles: vec![],
+                warnings: vec![DiscoveryWarning {
+                    browser,
+                    root: root.to_path_buf(),
+                    message,
+                }],
+            };
+        }
+    };
+
+    let mut profiles = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let profile_path = entry.path();
+            if !profile_path.join("Preferences").is_file() {
+                return None;
+            }
+            Some(BrowserProfile {
+                browser,
+                installation_root: root.to_path_buf(),
+                profile_name: entry.file_name().to_string_lossy().into_owned(),
+                profile_path,
+            })
+        })
+        .collect::<Vec<_>>();
+    profiles.sort_by(|left, right| left.profile_name.cmp(&right.profile_name));
+
+    DiscoveryResult {
+        profiles,
+        warnings: vec![],
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Classification {
     pub category: TrackerCategory,
@@ -121,6 +168,25 @@ mod tests {
         assert_eq!(classify_domain(&bundle(), "notexample.test"), None);
     }
 
+    fn temp_directory(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "tracker-cleaner-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn create_profile(root: &std::path::Path, name: &str) {
+        let profile = root.join(name);
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(profile.join("Preferences"), "{}").unwrap();
+    }
+
     #[test]
     fn browser_profile_model_keeps_paths_profile_scoped() {
         let profile = BrowserProfile {
@@ -158,5 +224,43 @@ mod tests {
         assert!(json.contains(r#""browser":"edge""#));
         assert!(json.contains(r#""profile_name":"Default""#));
         assert!(json.contains(r#""message":"profile root does not exist""#));
+    }
+
+    #[test]
+    fn chrome_discovery_finds_default_and_named_profiles() {
+        let root = temp_directory("chrome-profiles");
+        create_profile(&root, "Default");
+        create_profile(&root, "Profile 1");
+        std::fs::create_dir_all(root.join("Crashpad")).unwrap();
+
+        let result = discover_chrome_profiles(&root);
+
+        let names = result
+            .profiles
+            .iter()
+            .map(|profile| profile.profile_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["Default", "Profile 1"]);
+        assert!(
+            result
+                .profiles
+                .iter()
+                .all(|profile| profile.browser == BrowserFamily::Chrome)
+        );
+        assert!(result.warnings.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn chrome_discovery_warns_when_root_is_missing() {
+        let root = temp_directory("missing-chrome-root");
+        std::fs::remove_dir_all(&root).unwrap();
+
+        let result = discover_chrome_profiles(&root);
+
+        assert!(result.profiles.is_empty());
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.warnings[0].browser, BrowserFamily::Chrome);
+        assert_eq!(result.warnings[0].message, "profile root does not exist");
     }
 }
