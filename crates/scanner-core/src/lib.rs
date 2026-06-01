@@ -75,6 +75,37 @@ pub struct ScanResult {
     pub warnings: Vec<ScanWarning>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupMode {
+    Review,
+    Balanced,
+    Aggressive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CleanupTarget {
+    CookieHost { profile_path: PathBuf, host: String },
+    ProfileArtifact { path: PathBuf },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupAction {
+    pub id: String,
+    pub artifact_type: ArtifactType,
+    pub target: CleanupTarget,
+    pub requires_browser_closed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupPlan {
+    pub mode: CleanupMode,
+    pub actions: Vec<CleanupAction>,
+    pub warnings: Vec<String>,
+    pub estimated_action_count: usize,
+}
+
 pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
     discover_profiles(BrowserFamily::Chrome, root)
 }
@@ -976,5 +1007,30 @@ mod tests {
         assert!(json.contains(r#""cookie_value":"[redacted]""#));
         assert!(json.contains("search=%5Bredacted%5D"));
         assert!(json.contains(r#""domain":"example.test""#));
+    }
+
+    #[test]
+    fn cleanup_plan_serializes_mode_targets_warnings_and_counts() {
+        let plan = CleanupPlan {
+            mode: CleanupMode::Review,
+            actions: vec![CleanupAction {
+                id: "action-1".into(),
+                artifact_type: ArtifactType::Cookie,
+                target: CleanupTarget::CookieHost {
+                    profile_path: r"C:\Chrome\User Data\Default".into(),
+                    host: "analytics.example".into(),
+                },
+                requires_browser_closed: true,
+            }],
+            warnings: vec!["cleanup may sign the user out".into()],
+            estimated_action_count: 1,
+        };
+
+        let json = serde_json::to_string(&plan).unwrap();
+
+        assert!(json.contains(r#""mode":"review""#));
+        assert!(json.contains(r#""kind":"cookie_host""#));
+        assert!(json.contains(r#""requires_browser_closed":true"#));
+        assert!(json.contains(r#""estimated_action_count":1"#));
     }
 }

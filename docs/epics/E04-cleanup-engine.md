@@ -5,7 +5,7 @@
 ## Stories
 
 ### E04-S01 Define cleanup plan and action models
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Plans record mode, targets, warnings, estimated counts, and closure requirements.
@@ -47,4 +47,3 @@
 - Result distinguishes completed, skipped, and failed actions.
 - Failure never produces a false full-success report.
 - Disposable-profile integration tests cover partial failure.
-
