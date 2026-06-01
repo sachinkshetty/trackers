@@ -159,6 +159,81 @@ fn domain_matches(candidate: &str, rule_domain: &str) -> bool {
             .is_some_and(|prefix| prefix.ends_with('.'))
 }
 
+pub fn scan_cookies(profile: &BrowserProfile, bundle: &RuleBundle) -> ScanResult {
+    let source = profile.profile_path.join("Network").join("Cookies");
+    let copied = std::env::temp_dir().join(format!(
+        "tracker-cleaner-cookies-{}-{}",
+        std::process::id(),
+        unique_suffix()
+    ));
+    if let Err(error) = std::fs::copy(&source, &copied) {
+        return cookie_warning(
+            profile,
+            format!("cookie database could not be copied: {error}"),
+        );
+    }
+
+    let result = read_copied_cookies(profile, bundle, &copied).unwrap_or_else(|error| {
+        cookie_warning(
+            profile,
+            format!("could not read copied cookie database: {error}"),
+        )
+    });
+    let _ = std::fs::remove_file(copied);
+    result
+}
+
+fn read_copied_cookies(
+    profile: &BrowserProfile,
+    bundle: &RuleBundle,
+    copied: &std::path::Path,
+) -> rusqlite::Result<ScanResult> {
+    let connection =
+        rusqlite::Connection::open_with_flags(copied, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut statement = connection.prepare("SELECT DISTINCT host_key FROM cookies")?;
+    let hosts = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut findings = Vec::new();
+    for host in hosts {
+        let site = host?.trim_start_matches('.').to_ascii_lowercase();
+        let classification = classify_domain(bundle, &site);
+        findings.push(Finding {
+            profile: profile.clone(),
+            artifact_type: ArtifactType::Cookie,
+            site: Some(site),
+            evidence_summary: if classification.is_some() {
+                "cookie host matched tracker rule".into()
+            } else {
+                "cookie host found in browser profile".into()
+            },
+            confidence: classification.map(|classification| classification.confidence),
+            cleanup_impact: CleanupImpact::MaySignOut,
+        });
+    }
+    findings.sort_by(|left, right| left.site.cmp(&right.site));
+    Ok(ScanResult {
+        findings,
+        warnings: vec![],
+    })
+}
+
+fn cookie_warning(profile: &BrowserProfile, message: String) -> ScanResult {
+    ScanResult {
+        findings: vec![],
+        warnings: vec![ScanWarning {
+            profile_path: profile.profile_path.clone(),
+            artifact_type: ArtifactType::Cookie,
+            message,
+        }],
+    }
+}
+
+fn unique_suffix() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is before Unix epoch")
+        .as_nanos()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,5 +451,63 @@ mod tests {
         assert!(json.contains(r#""artifact_type":"cookie""#));
         assert!(json.contains(r#""cleanup_impact":"may_sign_out""#));
         assert!(json.contains(r#""message":"cookie database could not be copied""#));
+    }
+
+    fn profile_at(path: &std::path::Path) -> BrowserProfile {
+        BrowserProfile {
+            browser: BrowserFamily::Chrome,
+            installation_root: path.parent().unwrap().to_path_buf(),
+            profile_name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            profile_path: path.to_path_buf(),
+        }
+    }
+
+    #[test]
+    fn cookie_scan_reports_hosts_without_exposing_values() {
+        let root = temp_directory("cookie-scan");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(profile_path.join("Network")).unwrap();
+        let database = profile_path.join("Network").join("Cookies");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE cookies (host_key TEXT NOT NULL, name TEXT NOT NULL, value TEXT);
+                 INSERT INTO cookies VALUES ('analytics.example.test', 'session', 'secret-token');",
+            )
+            .unwrap();
+        drop(connection);
+
+        let result = scan_cookies(&profile_at(&profile_path), &bundle());
+        let json = serde_json::to_string(&result).unwrap();
+
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(
+            result.findings[0].site.as_deref(),
+            Some("analytics.example.test")
+        );
+        assert_eq!(result.findings[0].confidence, Some(Confidence::High));
+        assert!(!json.contains("secret-token"));
+        assert!(!json.contains("session"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_cookie_database_returns_scoped_warning() {
+        let root = temp_directory("malformed-cookie-scan");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(profile_path.join("Network")).unwrap();
+        std::fs::write(profile_path.join("Network").join("Cookies"), "not sqlite").unwrap();
+
+        let result = scan_cookies(&profile_at(&profile_path), &bundle());
+
+        assert!(result.findings.is_empty());
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.warnings[0].artifact_type, ArtifactType::Cookie);
+        assert!(
+            result.warnings[0]
+                .message
+                .contains("could not read copied cookie database")
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
