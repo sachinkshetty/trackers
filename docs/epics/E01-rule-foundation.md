@@ -6,7 +6,7 @@ deterministically.
 ## Stories
 
 ### E01-S01 Define the rule-bundle schema
-**Status:** todo
+**Status:** done
 
 Create versioned Rust types for rules, categories, source metadata, and bundle
 metadata.
@@ -52,4 +52,3 @@ Select initial public filter-list inputs only after documenting compatibility.
 **Acceptance criteria**
 - Each selected list has recorded source URL, license, attribution requirement, and update method.
 - Incompatible sources are documented but not ingested.
-
