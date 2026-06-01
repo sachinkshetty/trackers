@@ -26,7 +26,7 @@
 - Discovery logic is covered with fixture directories.
 
 ### E02-S04 Expose discovery through the scanner CLI
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - CLI prints structured JSON for automation.
