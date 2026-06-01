@@ -8,6 +8,7 @@ use crate::scan::{
     CancellationFlag, ScanProgress, ScanRequest, ScanRunResult, embedded_rule_bundle, run_scan,
     scan_profile,
 };
+use crate::settings::{DesktopSettingsSnapshot, settings_snapshot as settings_snapshot_snapshot};
 use tauri::{Emitter, State, Window};
 
 #[tauri::command]
@@ -23,6 +24,11 @@ pub fn cancel_scan(scan_state: State<'_, CancellationFlag>) {
 #[tauri::command]
 pub fn preview_cleanup(request: CleanupPreviewRequest) -> Result<CleanupPreviewResult, String> {
     preview_cleanup_snapshot(request)
+}
+
+#[tauri::command]
+pub fn settings_snapshot() -> DesktopSettingsSnapshot {
+    settings_snapshot_snapshot()
 }
 
 #[tauri::command]

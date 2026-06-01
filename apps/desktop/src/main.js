@@ -68,6 +68,35 @@ app.innerHTML = `
           </div>
           <div class="stack" data-cleanup-preview></div>
         </article>
+
+        <article class="card">
+          <div class="results-header">
+            <h2>Settings and privacy</h2>
+            <p class="subtle" data-settings-summary>Loading bundle metadata...</p>
+          </div>
+          <div class="stack">
+            <div class="row">
+              <strong>Rule bundle version</strong>
+              <p class="artifact-detail" data-rule-version>Loading...</p>
+            </div>
+            <div class="row">
+              <strong>Update state</strong>
+              <p class="artifact-detail" data-update-state>Loading...</p>
+            </div>
+            <label class="setting-toggle">
+              <input type="checkbox" data-telemetry-opt-in />
+              Anonymous telemetry opt-in
+            </label>
+            <label class="setting-toggle">
+              <input type="checkbox" data-diagnostics-opt-in />
+              Diagnostics report opt-in
+            </label>
+            <p class="subtle">
+              Telemetry remains disabled unless you opt in. Diagnostics stay separate so troubleshooting
+              reports do not mix with aggregate usage metrics.
+            </p>
+          </div>
+        </article>
       </div>
     </section>
   </main>
@@ -87,6 +116,11 @@ const cleanupPreviewContainer = app.querySelector('[data-cleanup-preview]');
 const previewCleanupButton = app.querySelector('[data-preview-cleanup]');
 const aggressiveConfirm = app.querySelector('[data-aggressive-confirm]');
 const cleanupModeButtons = app.querySelectorAll('[data-cleanup-mode]');
+const settingsSummary = app.querySelector('[data-settings-summary]');
+const ruleVersion = app.querySelector('[data-rule-version]');
+const updateState = app.querySelector('[data-update-state]');
+const telemetryOptIn = app.querySelector('[data-telemetry-opt-in]');
+const diagnosticsOptIn = app.querySelector('[data-diagnostics-opt-in]');
 
 const state = {
   discovery: null,
@@ -97,6 +131,12 @@ const state = {
   cleanupMode: 'review',
   cleanupPreview: null,
   scanRunning: false,
+  settings: {
+    ruleBundleVersion: 'loading',
+    updateState: 'loading',
+    telemetryOptIn: false,
+    diagnosticsOptIn: false,
+  },
 };
 
 function browserProfiles(snapshot) {
@@ -271,6 +311,15 @@ function renderCleanupPreview() {
   `;
 }
 
+function renderSettings() {
+  settingsSummary.textContent =
+    `${state.settings.ruleBundleVersion} · ${state.settings.updateState}`;
+  ruleVersion.textContent = state.settings.ruleBundleVersion;
+  updateState.textContent = state.settings.updateState;
+  telemetryOptIn.checked = state.settings.telemetryOptIn;
+  diagnosticsOptIn.checked = state.settings.diagnosticsOptIn;
+}
+
 function syncCleanupControls() {
   aggressiveConfirm.disabled = state.cleanupMode !== 'aggressive' || state.scanRunning;
   previewCleanupButton.disabled =
@@ -295,6 +344,31 @@ function combineDiscovery(snapshot) {
     profiles: browserProfiles(snapshot),
     warnings: browserWarnings(snapshot),
   };
+}
+
+function formatUpdateState(value) {
+  switch (value) {
+    case 'embedded_starter_bundle':
+      return 'Embedded starter bundle';
+    default:
+      return value.replaceAll('_', ' ');
+  }
+}
+
+function readStoredFlag(key) {
+  try {
+    return localStorage.getItem(key) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredFlag(key, value) {
+  try {
+    localStorage.setItem(key, value ? 'true' : 'false');
+  } catch {
+    // Ignore storage failures in restricted or private contexts.
+  }
 }
 
 function allFindingIds(scanResult) {
@@ -346,6 +420,15 @@ async function loadDiscovery() {
       : 'No browser profiles found.',
   );
   setRunning(false);
+}
+
+async function loadSettings() {
+  const snapshot = await invoke('settings_snapshot', {});
+  state.settings.ruleBundleVersion = snapshot.ruleBundleVersion;
+  state.settings.updateState = formatUpdateState(snapshot.updateState);
+  state.settings.telemetryOptIn = readStoredFlag('trackers.telemetryOptIn');
+  state.settings.diagnosticsOptIn = readStoredFlag('trackers.diagnosticsOptIn');
+  renderSettings();
 }
 
 async function startScan() {
@@ -419,6 +502,18 @@ function setCleanupMode(mode) {
   syncCleanupControls();
 }
 
+function setTelemetryOptIn(enabled) {
+  state.settings.telemetryOptIn = enabled;
+  writeStoredFlag('trackers.telemetryOptIn', enabled);
+  renderSettings();
+}
+
+function setDiagnosticsOptIn(enabled) {
+  state.settings.diagnosticsOptIn = enabled;
+  writeStoredFlag('trackers.diagnosticsOptIn', enabled);
+  renderSettings();
+}
+
 startButton.addEventListener('click', () => {
   startScan().catch((error) => {
     setRunning(false);
@@ -452,8 +547,22 @@ aggressiveConfirm.addEventListener('change', () => {
   renderCleanupPreview();
 });
 
+telemetryOptIn.addEventListener('change', () => {
+  setTelemetryOptIn(telemetryOptIn.checked);
+});
+
+diagnosticsOptIn.addEventListener('change', () => {
+  setDiagnosticsOptIn(diagnosticsOptIn.checked);
+});
+
 registerListeners();
 setCleanupMode('review');
+renderSettings();
 loadDiscovery().catch((error) => {
   setStatus(`Failed to load profiles: ${error}`);
+});
+loadSettings().catch((error) => {
+  state.settings.ruleBundleVersion = 'unavailable';
+  state.settings.updateState = `Unavailable: ${error}`;
+  renderSettings();
 });
