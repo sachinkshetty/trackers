@@ -33,7 +33,7 @@
 - Exception state remains local.
 
 ### E05-S05 Show current-site blocked counts
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Popup shows counts grouped by category.
