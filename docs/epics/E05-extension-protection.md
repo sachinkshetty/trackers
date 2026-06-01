@@ -19,7 +19,7 @@
 - Controlled fixture pages demonstrate expected blocking.
 
 ### E05-S03 Add Strict mode
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Strict mode is opt-in and displays a breakage warning.
