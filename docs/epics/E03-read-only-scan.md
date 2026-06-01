@@ -27,7 +27,7 @@
 - Ambiguous data remains distinguishable from high-confidence tracker findings.
 
 ### E03-S04 Inventory installed extensions
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Report extension identifier, display name where available, enabled state, and evidence source.
