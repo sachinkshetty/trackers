@@ -308,6 +308,67 @@ pub fn preflight_locked_resources(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupFailure {
+    pub id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupExecutionResult {
+    pub completed_ids: Vec<String>,
+    pub skipped_ids: Vec<String>,
+    pub failed: Vec<CleanupFailure>,
+}
+
+impl CleanupExecutionResult {
+    pub fn is_full_success(&self) -> bool {
+        self.skipped_ids.is_empty() && self.failed.is_empty()
+    }
+}
+
+pub fn execute_cleanup(plan: &CleanupPlan, skipped_ids: &[String]) -> CleanupExecutionResult {
+    let mut result = CleanupExecutionResult::default();
+    for action in &plan.actions {
+        if skipped_ids.contains(&action.id) {
+            result.skipped_ids.push(action.id.clone());
+            continue;
+        }
+        match execute_action(action) {
+            Ok(()) => result.completed_ids.push(action.id.clone()),
+            Err(message) => result.failed.push(CleanupFailure {
+                id: action.id.clone(),
+                message,
+            }),
+        }
+    }
+    result
+}
+
+fn execute_action(action: &CleanupAction) -> Result<(), String> {
+    match &action.target {
+        CleanupTarget::CookieHost { profile_path, host } => delete_cookie_host(profile_path, host),
+        CleanupTarget::ProfileArtifact { path } if path.is_dir() => {
+            std::fs::remove_dir_all(path).map_err(|error| error.to_string())
+        }
+        CleanupTarget::ProfileArtifact { path } => {
+            std::fs::remove_file(path).map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn delete_cookie_host(profile_path: &std::path::Path, host: &str) -> Result<(), String> {
+    let path = profile_path.join("Network").join("Cookies");
+    let connection = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
+    connection
+        .execute(
+            "DELETE FROM cookies WHERE host_key = ?1 OR host_key = ?2",
+            rusqlite::params![host, format!(".{host}")],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
     discover_profiles(BrowserFamily::Chrome, root)
 }
@@ -1449,5 +1510,58 @@ mod tests {
         );
         assert!(matches!(closed, PreflightResult::RetryAfterClose));
         assert_eq!(closer.calls.get(), 1);
+    }
+
+    #[test]
+    fn cleanup_execution_reports_completed_skipped_and_failed_actions() {
+        let root = temp_directory("cleanup-execution");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(profile_path.join("Cache")).unwrap();
+        std::fs::write(profile_path.join("Cache").join("entry"), "cached").unwrap();
+        std::fs::create_dir_all(profile_path.join("Network")).unwrap();
+        std::fs::write(profile_path.join("Network").join("Cookies"), "not sqlite").unwrap();
+
+        let plan = CleanupPlan {
+            mode: CleanupMode::Aggressive,
+            actions: vec![
+                CleanupAction {
+                    id: "cache".into(),
+                    artifact_type: ArtifactType::Cache,
+                    target: CleanupTarget::ProfileArtifact {
+                        path: profile_path.join("Cache"),
+                    },
+                    requires_browser_closed: true,
+                },
+                CleanupAction {
+                    id: "skipped".into(),
+                    artifact_type: ArtifactType::History,
+                    target: CleanupTarget::ProfileArtifact {
+                        path: profile_path.join("History"),
+                    },
+                    requires_browser_closed: true,
+                },
+                CleanupAction {
+                    id: "cookie".into(),
+                    artifact_type: ArtifactType::Cookie,
+                    target: CleanupTarget::CookieHost {
+                        profile_path: profile_path.clone(),
+                        host: "analytics.example".into(),
+                    },
+                    requires_browser_closed: true,
+                },
+            ],
+            warnings: vec![],
+            estimated_action_count: 3,
+        };
+
+        let result = execute_cleanup(&plan, &["skipped".into()]);
+
+        assert_eq!(result.completed_ids, vec!["cache"]);
+        assert_eq!(result.skipped_ids, vec!["skipped"]);
+        assert_eq!(result.failed.len(), 1);
+        assert_eq!(result.failed[0].id, "cookie");
+        assert!(!result.is_full_success());
+        assert!(!profile_path.join("Cache").exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
