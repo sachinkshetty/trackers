@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Browser Tracker Cleaner",
+  "version": "0.1.0",
+  "description": "Blocks known browser trackers locally.",
+  "permissions": [
+    "declarativeNetRequest",
+    "storage"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "starter_rules",
+        "enabled": true,
+        "path": "rules/starter.json"
+      }
+    ]
+  },
+  "background": {
+    "service_worker": "dist/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Browser Tracker Cleaner"
+  }
+}
+

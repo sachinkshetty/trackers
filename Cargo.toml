@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/rule-format",
+    "crates/scanner-cli",
+    "crates/scanner-core",
+    "crates/update-verifier",
+    "tools/rule-compiler",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+
