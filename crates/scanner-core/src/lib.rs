@@ -339,6 +339,149 @@ fn extension_item(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SettingStatus {
+    Supported { value: String },
+    Unsupported { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrivacySetting {
+    pub key: String,
+    pub status: SettingStatus,
+    pub evidence_source: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrivacySettingsResult {
+    pub settings: Vec<PrivacySetting>,
+    pub warnings: Vec<ScanWarning>,
+}
+
+impl PrivacySettingsResult {
+    pub fn setting(&self, key: &str) -> Option<&PrivacySetting> {
+        self.settings.iter().find(|setting| setting.key == key)
+    }
+}
+
+pub fn inspect_privacy_settings(profile: &BrowserProfile) -> PrivacySettingsResult {
+    let preferences_path = profile.profile_path.join("Preferences");
+    let preferences = match read_json(&preferences_path) {
+        Ok(preferences) => preferences,
+        Err(error) => {
+            return PrivacySettingsResult {
+                settings: vec![],
+                warnings: vec![ScanWarning {
+                    profile_path: profile.profile_path.clone(),
+                    artifact_type: ArtifactType::Setting,
+                    message: format!("could not parse Preferences: {error}"),
+                }],
+            };
+        }
+    };
+    let settings = vec![
+        text_setting("homepage", &preferences, "/homepage", &preferences_path),
+        text_setting(
+            "default_search_engine",
+            &preferences,
+            "/default_search_provider/name",
+            &preferences_path,
+        ),
+        count_setting(
+            "notification_permissions",
+            &preferences,
+            "/profile/content_settings/exceptions/notifications",
+            &preferences_path,
+        ),
+        sensitive_permissions_setting(&preferences, &preferences_path),
+        text_setting("proxy", &preferences, "/proxy/mode", &preferences_path),
+        text_setting(
+            "secure_dns",
+            &preferences,
+            "/dns_over_https/mode",
+            &preferences_path,
+        ),
+    ];
+    PrivacySettingsResult {
+        settings,
+        warnings: vec![],
+    }
+}
+
+fn read_json(path: &std::path::Path) -> Result<serde_json::Value, String> {
+    std::fs::read_to_string(path)
+        .map_err(|error| error.to_string())
+        .and_then(|json| serde_json::from_str(&json).map_err(|error| error.to_string()))
+}
+
+fn text_setting(
+    key: &str,
+    preferences: &serde_json::Value,
+    pointer: &str,
+    evidence_source: &std::path::Path,
+) -> PrivacySetting {
+    let status = preferences
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_str)
+        .map(|value| SettingStatus::Supported {
+            value: value.to_owned(),
+        })
+        .unwrap_or_else(|| SettingStatus::Unsupported {
+            reason: "not exposed in readable profile preferences".into(),
+        });
+    PrivacySetting {
+        key: key.into(),
+        status,
+        evidence_source: evidence_source.to_path_buf(),
+    }
+}
+
+fn count_setting(
+    key: &str,
+    preferences: &serde_json::Value,
+    pointer: &str,
+    evidence_source: &std::path::Path,
+) -> PrivacySetting {
+    let count = preferences
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_object)
+        .map(|entries| entries.len())
+        .unwrap_or(0);
+    PrivacySetting {
+        key: key.into(),
+        status: SettingStatus::Supported {
+            value: format!("{count} configured entries"),
+        },
+        evidence_source: evidence_source.to_path_buf(),
+    }
+}
+
+fn sensitive_permissions_setting(
+    preferences: &serde_json::Value,
+    evidence_source: &std::path::Path,
+) -> PrivacySetting {
+    let count = ["geolocation", "media_stream_camera", "media_stream_mic"]
+        .into_iter()
+        .map(|permission| {
+            preferences
+                .pointer(&format!(
+                    "/profile/content_settings/exceptions/{permission}"
+                ))
+                .and_then(serde_json::Value::as_object)
+                .map(|entries| entries.len())
+                .unwrap_or(0)
+        })
+        .sum::<usize>();
+    PrivacySetting {
+        key: "sensitive_site_permissions".into(),
+        status: SettingStatus::Supported {
+            value: format!("{count} configured entries"),
+        },
+        evidence_source: evidence_source.to_path_buf(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,6 +854,49 @@ mod tests {
                 .message
                 .contains("could not parse Preferences")
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn privacy_settings_report_supported_and_unsupported_values() {
+        let root = temp_directory("privacy-settings");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(&profile_path).unwrap();
+        std::fs::write(
+            profile_path.join("Preferences"),
+            r#"{
+                "homepage":"https://example.test/",
+                "default_search_provider":{"name":"Fixture Search"},
+                "profile":{"content_settings":{"exceptions":{
+                    "notifications":{"https://news.example,*":{"setting":1}},
+                    "geolocation":{"https://maps.example,*":{"setting":1}}
+                }}}
+            }"#,
+        )
+        .unwrap();
+
+        let result = inspect_privacy_settings(&profile_at(&profile_path));
+
+        assert_eq!(
+            result.setting("homepage").unwrap().status,
+            SettingStatus::Supported {
+                value: "https://example.test/".into()
+            }
+        );
+        assert_eq!(
+            result.setting("notification_permissions").unwrap().status,
+            SettingStatus::Supported {
+                value: "1 configured entries".into()
+            }
+        );
+        assert!(matches!(
+            result.setting("proxy").unwrap().status,
+            SettingStatus::Unsupported { .. }
+        ));
+        assert!(matches!(
+            result.setting("secure_dns").unwrap().status,
+            SettingStatus::Unsupported { .. }
+        ));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -34,7 +34,7 @@
 - Do not label extensions as malware.
 
 ### E03-S05 Inspect privacy-relevant settings
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Report notification and sensitive site permissions, default search, homepage, proxy, and secure DNS where accessible.
