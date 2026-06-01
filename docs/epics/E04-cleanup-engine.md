@@ -41,7 +41,7 @@
 - Active browser processes are never closed without explicit confirmation.
 
 ### E04-S06 Execute and report partial cleanup
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Result distinguishes completed, skipped, and failed actions.
