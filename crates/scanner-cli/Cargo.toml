@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+scanner-core = { path = "../scanner-core" }
+serde_json = "1"
+
+[[test]]
+name = "discover_cli"
+path = "tests/discover_cli.rs"
