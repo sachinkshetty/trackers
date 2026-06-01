@@ -1,0 +1,23 @@
+[package]
+name = "trackers-desktop"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[lib]
+name = "trackers_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = "2.6.2"
+
+[dependencies]
+scanner-core = { path = "../../../crates/scanner-core" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.11.2" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

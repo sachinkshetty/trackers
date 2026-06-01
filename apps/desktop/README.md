@@ -1,8 +1,18 @@
 # Desktop App
 
-This directory will contain the Tauri desktop application. The Rust scanner
-engine lives in `crates/scanner-core` so it can also be exercised through the
-internal CLI before UI integration.
+Tauri desktop shell for the tracker cleaner.
 
-Initialize the Tauri shell during Epic 6 after the scanner contracts stabilize.
+## Local Run
 
+```powershell
+cd apps\desktop
+npm install
+npm run tauri -- info
+npm run tauri -- dev
+```
+
+## Structure
+
+- `src-tauri` contains the Rust backend and Tauri configuration.
+- `src` contains the Vite frontend that invokes narrow scanner commands.
+- `crates/scanner-core` provides the reusable discovery and cleanup logic.

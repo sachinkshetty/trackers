@@ -5,7 +5,7 @@
 ## Stories
 
 ### E06-S01 Initialize the Tauri shell
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - App launches locally on Windows 10 and 11 development environments.
@@ -38,4 +38,3 @@
 **Acceptance criteria**
 - Rule version, update state, and separate telemetry and diagnostic opt-ins are visible.
 - Both opt-ins default to disabled.
-

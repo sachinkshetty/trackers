@@ -5,6 +5,7 @@ members = [
     "crates/scanner-cli",
     "crates/scanner-core",
     "crates/update-verifier",
+    "apps/desktop/src-tauri",
     "tools/rule-compiler",
 ]
 
@@ -12,4 +13,3 @@ members = [
 edition = "2024"
 license = "MIT OR Apache-2.0"
 version = "0.1.0"
-
