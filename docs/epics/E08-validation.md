@@ -12,7 +12,7 @@
 - Tests never target personal browser profiles.
 
 ### E08-S02 Validate cleanup preservation rules
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Balanced cleanup preserves ambiguous and allowlisted artifacts.
