@@ -34,6 +34,10 @@ pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
     discover_profiles(BrowserFamily::Chrome, root)
 }
 
+pub fn discover_edge_profiles(root: &std::path::Path) -> DiscoveryResult {
+    discover_profiles(BrowserFamily::Edge, root)
+}
+
 fn discover_profiles(browser: BrowserFamily, root: &std::path::Path) -> DiscoveryResult {
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
@@ -262,5 +266,40 @@ mod tests {
         assert_eq!(result.warnings.len(), 1);
         assert_eq!(result.warnings[0].browser, BrowserFamily::Chrome);
         assert_eq!(result.warnings[0].message, "profile root does not exist");
+    }
+
+    #[test]
+    fn edge_discovery_finds_default_and_named_profiles() {
+        let root = temp_directory("edge-profiles");
+        create_profile(&root, "Profile 2");
+        create_profile(&root, "Default");
+
+        let result = discover_edge_profiles(&root);
+
+        let names = result
+            .profiles
+            .iter()
+            .map(|profile| profile.profile_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["Default", "Profile 2"]);
+        assert!(
+            result
+                .profiles
+                .iter()
+                .all(|profile| profile.browser == BrowserFamily::Edge)
+        );
+        assert!(result.warnings.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn edge_discovery_warns_when_root_is_missing() {
+        let root = temp_directory("missing-edge-root");
+        std::fs::remove_dir_all(&root).unwrap();
+
+        let result = discover_edge_profiles(&root);
+
+        assert!(result.profiles.is_empty());
+        assert_eq!(result.warnings[0].browser, BrowserFamily::Edge);
     }
 }

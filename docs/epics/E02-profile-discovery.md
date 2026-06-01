@@ -19,7 +19,7 @@
 - Missing or inaccessible profile roots return warnings instead of crashes.
 
 ### E02-S03 Discover standard Edge profiles
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Default and named profiles are discovered.
