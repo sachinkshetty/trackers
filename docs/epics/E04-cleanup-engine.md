@@ -26,7 +26,7 @@
 - Ambiguous, login-related, and allowlisted data are preserved by default.
 
 ### E04-S04 Generate Aggressive-mode plans
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Broader deletion requires an explicit confirmation state.
