@@ -262,6 +262,83 @@ pub fn inventory_site_storage(profile: &BrowserProfile) -> ScanResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionInventoryItem {
+    pub id: String,
+    pub display_name: Option<String>,
+    pub enabled: bool,
+    pub evidence_source: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionInventoryResult {
+    pub extensions: Vec<ExtensionInventoryItem>,
+    pub warnings: Vec<ScanWarning>,
+}
+
+pub fn inventory_extensions(profile: &BrowserProfile) -> ExtensionInventoryResult {
+    let preferences_path = profile.profile_path.join("Preferences");
+    let preferences = match std::fs::read_to_string(&preferences_path)
+        .map_err(|error| error.to_string())
+        .and_then(|json| {
+            serde_json::from_str::<serde_json::Value>(&json).map_err(|error| error.to_string())
+        }) {
+        Ok(preferences) => preferences,
+        Err(error) => {
+            return ExtensionInventoryResult {
+                extensions: vec![],
+                warnings: vec![ScanWarning {
+                    profile_path: profile.profile_path.clone(),
+                    artifact_type: ArtifactType::Extension,
+                    message: format!("could not parse Preferences: {error}"),
+                }],
+            };
+        }
+    };
+    let settings = preferences
+        .pointer("/extensions/settings")
+        .and_then(serde_json::Value::as_object);
+    let mut extensions = settings
+        .into_iter()
+        .flatten()
+        .filter_map(|(id, settings)| extension_item(profile, id, settings))
+        .collect::<Vec<_>>();
+    extensions.sort_by(|left, right| left.id.cmp(&right.id));
+    ExtensionInventoryResult {
+        extensions,
+        warnings: vec![],
+    }
+}
+
+fn extension_item(
+    profile: &BrowserProfile,
+    id: &str,
+    settings: &serde_json::Value,
+) -> Option<ExtensionInventoryItem> {
+    let versions_root = profile.profile_path.join("Extensions").join(id);
+    let manifest_path = std::fs::read_dir(versions_root)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("manifest.json"))
+        .filter(|path| path.is_file())
+        .max()?;
+    let display_name = std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+        .and_then(|manifest| {
+            manifest
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    Some(ExtensionInventoryItem {
+        id: id.into(),
+        display_name,
+        enabled: settings.get("state").and_then(serde_json::Value::as_i64) == Some(1),
+        evidence_source: manifest_path,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,6 +653,63 @@ mod tests {
                 .findings
                 .iter()
                 .all(|finding| finding.cleanup_impact == CleanupImpact::ReviewRequired)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extension_inventory_reports_identifier_name_state_and_evidence() {
+        let root = temp_directory("extension-inventory");
+        let profile_path = root.join("Default");
+        let extension_id = "abcdefghijklmnopabcdefghijklmnop";
+        let extension_root = profile_path
+            .join("Extensions")
+            .join(extension_id)
+            .join("1.2.3_0");
+        std::fs::create_dir_all(&extension_root).unwrap();
+        std::fs::write(
+            extension_root.join("manifest.json"),
+            r#"{"name":"Fixture Extension","version":"1.2.3"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            profile_path.join("Preferences"),
+            format!(r#"{{"extensions":{{"settings":{{"{extension_id}":{{"state":1}}}}}}}}"#),
+        )
+        .unwrap();
+
+        let result = inventory_extensions(&profile_at(&profile_path));
+
+        assert_eq!(result.extensions.len(), 1);
+        assert_eq!(result.extensions[0].id, extension_id);
+        assert_eq!(
+            result.extensions[0].display_name.as_deref(),
+            Some("Fixture Extension")
+        );
+        assert!(result.extensions[0].enabled);
+        assert!(
+            result.extensions[0]
+                .evidence_source
+                .ends_with("manifest.json")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extension_inventory_warns_when_preferences_are_malformed() {
+        let root = temp_directory("malformed-extension-preferences");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(&profile_path).unwrap();
+        std::fs::write(profile_path.join("Preferences"), "not json").unwrap();
+
+        let result = inventory_extensions(&profile_at(&profile_path));
+
+        assert!(result.extensions.is_empty());
+        assert_eq!(result.warnings.len(), 1);
+        assert!(
+            result.warnings[0]
+                .message
+                .contains("could not parse Preferences")
         );
         std::fs::remove_dir_all(root).unwrap();
     }
