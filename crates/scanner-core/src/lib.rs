@@ -234,6 +234,34 @@ fn unique_suffix() -> u128 {
         .as_nanos()
 }
 
+pub fn inventory_site_storage(profile: &BrowserProfile) -> ScanResult {
+    let artifacts = [
+        (ArtifactType::LocalStorage, "Local Storage"),
+        (ArtifactType::IndexedDb, "IndexedDB"),
+        (ArtifactType::Cache, "Cache"),
+        (ArtifactType::History, "History"),
+        (ArtifactType::ServiceWorker, "Service Worker"),
+    ];
+    let findings = artifacts
+        .into_iter()
+        .filter_map(|(artifact_type, relative_path)| {
+            let path = profile.profile_path.join(relative_path);
+            path.exists().then(|| Finding {
+                profile: profile.clone(),
+                artifact_type,
+                site: None,
+                evidence_summary: format!("{relative_path} data is present in the browser profile"),
+                confidence: None,
+                cleanup_impact: CleanupImpact::ReviewRequired,
+            })
+        })
+        .collect();
+    ScanResult {
+        findings,
+        warnings: vec![],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -507,6 +535,47 @@ mod tests {
             result.warnings[0]
                 .message
                 .contains("could not read copied cookie database")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn storage_inventory_reports_supported_artifacts_as_ambiguous() {
+        let root = temp_directory("storage-inventory");
+        let profile_path = root.join("Default");
+        for directory in ["Local Storage", "IndexedDB", "Cache", "Service Worker"] {
+            std::fs::create_dir_all(profile_path.join(directory)).unwrap();
+        }
+        std::fs::write(profile_path.join("History"), "fixture").unwrap();
+
+        let result = inventory_site_storage(&profile_at(&profile_path));
+
+        let artifact_types = result
+            .findings
+            .iter()
+            .map(|finding| finding.artifact_type)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            artifact_types,
+            vec![
+                ArtifactType::LocalStorage,
+                ArtifactType::IndexedDb,
+                ArtifactType::Cache,
+                ArtifactType::History,
+                ArtifactType::ServiceWorker,
+            ]
+        );
+        assert!(
+            result
+                .findings
+                .iter()
+                .all(|finding| finding.confidence.is_none())
+        );
+        assert!(
+            result
+                .findings
+                .iter()
+                .all(|finding| finding.cleanup_impact == CleanupImpact::ReviewRequired)
         );
         std::fs::remove_dir_all(root).unwrap();
     }
