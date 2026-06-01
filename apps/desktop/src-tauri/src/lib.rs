@@ -1,4 +1,5 @@
 mod backend;
+mod cleanup;
 mod commands;
 mod scan;
 
@@ -9,7 +10,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::discover_profiles,
             commands::start_scan,
-            commands::cancel_scan
+            commands::cancel_scan,
+            commands::preview_cleanup
         ])
         .run(tauri::generate_context!())
         .expect("error while running trackers desktop application");

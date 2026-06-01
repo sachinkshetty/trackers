@@ -128,6 +128,23 @@ h1 {
   flex-wrap: wrap;
 }
 
+.cleanup-toolbar {
+  margin-top: 12px;
+  align-items: flex-end;
+}
+
+.cleanup-toolbar .actions {
+  align-items: center;
+}
+
+.confirm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #c1c8dc;
+  font-size: 0.92rem;
+}
+
 .subtle {
   margin: 0;
   color: #91a0c9;
