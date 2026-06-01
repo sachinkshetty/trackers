@@ -5,7 +5,7 @@
 ## Stories
 
 ### E03-S01 Define finding and scan-result models
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Findings include profile, artifact type, site, evidence summary, confidence, and cleanup impact.
@@ -46,4 +46,3 @@
 **Acceptance criteria**
 - Raw evidence excludes cookie values, tokens, and sensitive URL parameters.
 - Redaction behavior is unit-tested.
-
