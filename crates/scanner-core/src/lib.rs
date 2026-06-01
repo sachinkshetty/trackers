@@ -1,6 +1,6 @@
 use rule_format::{Confidence, RuleBundle, TrackerCategory};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -482,6 +482,61 @@ fn sensitive_permissions_setting(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpertEvidence {
+    pub source_path: PathBuf,
+    pub fields: BTreeMap<String, String>,
+}
+
+impl ExpertEvidence {
+    pub fn new(source_path: impl Into<PathBuf>) -> Self {
+        Self {
+            source_path: source_path.into(),
+            fields: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_field(mut self, key: impl Into<String>, value: impl AsRef<str>) -> Self {
+        let key = key.into();
+        let value = redact_field(&key, value.as_ref());
+        self.fields.insert(key, value);
+        self
+    }
+}
+
+fn redact_field(key: &str, value: &str) -> String {
+    let key = key.to_ascii_lowercase();
+    if ["cookie", "token", "authorization", "password", "secret"]
+        .iter()
+        .any(|sensitive| key.contains(sensitive))
+    {
+        return "[redacted]".into();
+    }
+    if key.contains("url") {
+        return redact_url(value);
+    }
+    value.into()
+}
+
+fn redact_url(value: &str) -> String {
+    let Ok(mut url) = url::Url::parse(value) else {
+        return "[redacted invalid URL]".into();
+    };
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    let query_keys = url
+        .query_pairs()
+        .map(|(key, _)| key.into_owned())
+        .collect::<Vec<_>>();
+    if !query_keys.is_empty() {
+        url.query_pairs_mut()
+            .clear()
+            .extend_pairs(query_keys.iter().map(|key| (key.as_str(), "[redacted]")));
+    }
+    url.set_fragment(None);
+    url.into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -898,5 +953,28 @@ mod tests {
             SettingStatus::Unsupported { .. }
         ));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn expert_evidence_redacts_sensitive_fields_and_url_values() {
+        let evidence = ExpertEvidence::new(r"C:\Chrome\User Data\Default\History")
+            .with_field("cookie_value", "secret-cookie")
+            .with_field("authorization", "Bearer secret-token")
+            .with_field(
+                "url",
+                "https://user:password@example.test/path?search=private&token=abc#fragment",
+            )
+            .with_field("domain", "example.test");
+        let json = serde_json::to_string(&evidence).unwrap();
+
+        assert!(!json.contains("secret-cookie"));
+        assert!(!json.contains("secret-token"));
+        assert!(!json.contains("password"));
+        assert!(!json.contains("private"));
+        assert!(!json.contains("abc"));
+        assert!(!json.contains("fragment"));
+        assert!(json.contains(r#""cookie_value":"[redacted]""#));
+        assert!(json.contains("search=%5Bredacted%5D"));
+        assert!(json.contains(r#""domain":"example.test""#));
     }
 }

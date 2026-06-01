@@ -41,7 +41,7 @@
 - Unsupported settings are reported as unsupported, not silently omitted.
 
 ### E03-S06 Add expert-view evidence fields
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Raw evidence excludes cookie values, tokens, and sensitive URL parameters.
