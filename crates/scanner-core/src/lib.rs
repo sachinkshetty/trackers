@@ -111,6 +111,7 @@ pub struct CleanupPlan {
 pub enum CleanupPlanError {
     FindingNotAvailable(String),
     FindingCannotBeCleaned(String),
+    AggressiveConfirmationRequired,
 }
 
 impl std::fmt::Display for CleanupPlanError {
@@ -125,8 +126,17 @@ impl std::fmt::Display for CleanupPlanError {
                     "selected finding '{id}' cannot be cleaned safely"
                 )
             }
+            Self::AggressiveConfirmationRequired => {
+                formatter.write_str("aggressive cleanup requires explicit confirmation")
+            }
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggressiveConfirmation {
+    NotConfirmed,
+    Confirmed,
 }
 
 impl std::error::Error for CleanupPlanError {}
@@ -184,6 +194,28 @@ fn cookie_is_allowlisted(finding: &Finding, allowlist: &[AllowedCookieHost]) -> 
     })
 }
 
+pub fn plan_aggressive_cleanup(
+    findings: &[Finding],
+    confirmation: AggressiveConfirmation,
+) -> Result<CleanupPlan, CleanupPlanError> {
+    if confirmation != AggressiveConfirmation::Confirmed {
+        return Err(CleanupPlanError::AggressiveConfirmationRequired);
+    }
+    let actions = findings
+        .iter()
+        .map(cleanup_action_for)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(CleanupPlan {
+        mode: CleanupMode::Aggressive,
+        estimated_action_count: actions.len(),
+        actions,
+        warnings: vec![
+            "Aggressive cleanup may sign the user out of websites.".into(),
+            "Aggressive cleanup may affect site functionality and saved preferences.".into(),
+        ],
+    })
+}
+
 fn cleanup_action_for(finding: &Finding) -> Result<CleanupAction, CleanupPlanError> {
     let target = if finding.artifact_type == ArtifactType::Cookie {
         CleanupTarget::CookieHost {
@@ -192,6 +224,10 @@ fn cleanup_action_for(finding: &Finding) -> Result<CleanupAction, CleanupPlanErr
                 .site
                 .clone()
                 .ok_or_else(|| CleanupPlanError::FindingCannotBeCleaned(finding.id.clone()))?,
+        }
+    } else if let Some(relative_path) = profile_artifact_path(finding.artifact_type) {
+        CleanupTarget::ProfileArtifact {
+            path: finding.profile.profile_path.join(relative_path),
         }
     } else {
         return Err(CleanupPlanError::FindingCannotBeCleaned(finding.id.clone()));
@@ -1223,5 +1259,59 @@ mod tests {
         assert_eq!(plan.mode, CleanupMode::Balanced);
         assert_eq!(plan.actions.len(), 1);
         assert_eq!(plan.actions[0].id, "safe");
+    }
+
+    #[test]
+    fn aggressive_plan_requires_explicit_confirmation() {
+        let error = plan_aggressive_cleanup(&[], AggressiveConfirmation::NotConfirmed).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "aggressive cleanup requires explicit confirmation"
+        );
+    }
+
+    #[test]
+    fn aggressive_plan_includes_broader_artifacts_and_mandatory_warnings() {
+        let profile = profile_at(std::path::Path::new(r"C:\Chrome\User Data\Default"));
+        let findings = vec![
+            cookie_finding(
+                "login-cookie",
+                "login.example",
+                None,
+                CleanupImpact::MaySignOut,
+            ),
+            Finding {
+                id: "artifact:Cache".into(),
+                profile,
+                artifact_type: ArtifactType::Cache,
+                site: None,
+                evidence_summary: "Cache data is present in the browser profile".into(),
+                confidence: None,
+                cleanup_impact: CleanupImpact::ReviewRequired,
+            },
+        ];
+
+        let plan = plan_aggressive_cleanup(&findings, AggressiveConfirmation::Confirmed).unwrap();
+
+        assert_eq!(plan.mode, CleanupMode::Aggressive);
+        assert_eq!(plan.actions.len(), 2);
+        assert!(plan.warnings.iter().any(|warning| warning.contains("sign")));
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|warning| warning.contains("functionality"))
+        );
+    }
+}
+
+fn profile_artifact_path(artifact_type: ArtifactType) -> Option<&'static str> {
+    match artifact_type {
+        ArtifactType::LocalStorage => Some("Local Storage"),
+        ArtifactType::IndexedDb => Some("IndexedDB"),
+        ArtifactType::Cache => Some("Cache"),
+        ArtifactType::History => Some("History"),
+        ArtifactType::ServiceWorker => Some("Service Worker"),
+        ArtifactType::Cookie | ArtifactType::Extension | ArtifactType::Setting => None,
     }
 }
