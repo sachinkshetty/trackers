@@ -26,7 +26,7 @@
 - Strict-only rules are separately testable and reversible.
 
 ### E05-S04 Add per-site exceptions
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - User can pause protection temporarily or permanently for the current site.
