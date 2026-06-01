@@ -12,7 +12,7 @@
 - Scanning and planning do not modify profiles.
 
 ### E04-S02 Generate Review-mode plans
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - User-selected findings map to explicit actions.

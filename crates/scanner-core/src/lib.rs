@@ -54,6 +54,7 @@ pub enum CleanupImpact {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finding {
+    pub id: String,
     pub profile: BrowserProfile,
     pub artifact_type: ArtifactType,
     pub site: Option<String>,
@@ -104,6 +105,70 @@ pub struct CleanupPlan {
     pub actions: Vec<CleanupAction>,
     pub warnings: Vec<String>,
     pub estimated_action_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CleanupPlanError {
+    FindingNotAvailable(String),
+    FindingCannotBeCleaned(String),
+}
+
+impl std::fmt::Display for CleanupPlanError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FindingNotAvailable(id) => {
+                write!(formatter, "selected finding '{id}' is not available")
+            }
+            Self::FindingCannotBeCleaned(id) => {
+                write!(
+                    formatter,
+                    "selected finding '{id}' cannot be cleaned safely"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for CleanupPlanError {}
+
+pub fn plan_review_cleanup(
+    findings: &[Finding],
+    selected_ids: &[String],
+) -> Result<CleanupPlan, CleanupPlanError> {
+    let mut actions = Vec::new();
+    for id in selected_ids {
+        let finding = findings
+            .iter()
+            .find(|finding| finding.id == *id)
+            .ok_or_else(|| CleanupPlanError::FindingNotAvailable(id.clone()))?;
+        actions.push(cleanup_action_for(finding)?);
+    }
+    Ok(CleanupPlan {
+        mode: CleanupMode::Review,
+        estimated_action_count: actions.len(),
+        actions,
+        warnings: vec![],
+    })
+}
+
+fn cleanup_action_for(finding: &Finding) -> Result<CleanupAction, CleanupPlanError> {
+    let target = if finding.artifact_type == ArtifactType::Cookie {
+        CleanupTarget::CookieHost {
+            profile_path: finding.profile.profile_path.clone(),
+            host: finding
+                .site
+                .clone()
+                .ok_or_else(|| CleanupPlanError::FindingCannotBeCleaned(finding.id.clone()))?,
+        }
+    } else {
+        return Err(CleanupPlanError::FindingCannotBeCleaned(finding.id.clone()));
+    };
+    Ok(CleanupAction {
+        id: finding.id.clone(),
+        artifact_type: finding.artifact_type,
+        target,
+        requires_browser_closed: true,
+    })
 }
 
 pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
@@ -228,6 +293,7 @@ fn read_copied_cookies(
         let site = host?.trim_start_matches('.').to_ascii_lowercase();
         let classification = classify_domain(bundle, &site);
         findings.push(Finding {
+            id: format!("cookie:{site}"),
             profile: profile.clone(),
             artifact_type: ArtifactType::Cookie,
             site: Some(site),
@@ -278,6 +344,7 @@ pub fn inventory_site_storage(profile: &BrowserProfile) -> ScanResult {
         .filter_map(|(artifact_type, relative_path)| {
             let path = profile.profile_path.join(relative_path);
             path.exists().then(|| Finding {
+                id: format!("artifact:{relative_path}"),
                 profile: profile.clone(),
                 artifact_type,
                 site: None,
@@ -761,6 +828,7 @@ mod tests {
     fn scan_result_serializes_findings_and_partial_failures() {
         let result = ScanResult {
             findings: vec![Finding {
+                id: "finding-1".into(),
                 profile: BrowserProfile {
                     browser: BrowserFamily::Chrome,
                     installation_root: r"C:\Chrome\User Data".into(),
@@ -1032,5 +1100,38 @@ mod tests {
         assert!(json.contains(r#""kind":"cookie_host""#));
         assert!(json.contains(r#""requires_browser_closed":true"#));
         assert!(json.contains(r#""estimated_action_count":1"#));
+    }
+
+    #[test]
+    fn review_plan_maps_selected_findings_to_explicit_actions() {
+        let profile = profile_at(std::path::Path::new(r"C:\Chrome\User Data\Default"));
+        let findings = vec![Finding {
+            id: "cookie:analytics.example".into(),
+            profile,
+            artifact_type: ArtifactType::Cookie,
+            site: Some("analytics.example".into()),
+            evidence_summary: "cookie host matched tracker rule".into(),
+            confidence: Some(Confidence::High),
+            cleanup_impact: CleanupImpact::MaySignOut,
+        }];
+
+        let plan = plan_review_cleanup(&findings, &["cookie:analytics.example".into()]).unwrap();
+
+        assert_eq!(plan.mode, CleanupMode::Review);
+        assert_eq!(plan.actions.len(), 1);
+        assert!(matches!(
+            plan.actions[0].target,
+            CleanupTarget::CookieHost { .. }
+        ));
+    }
+
+    #[test]
+    fn review_plan_rejects_stale_selection() {
+        let error = plan_review_cleanup(&[], &["missing".into()]).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "selected finding 'missing' is not available"
+        );
     }
 }
