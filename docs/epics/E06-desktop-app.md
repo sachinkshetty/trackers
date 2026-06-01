@@ -33,7 +33,7 @@
 - Warnings and locked-item choices appear before execution.
 
 ### E06-S05 Build settings and privacy controls
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Rule version, update state, and separate telemetry and diagnostic opt-ins are visible.
