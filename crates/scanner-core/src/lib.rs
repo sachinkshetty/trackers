@@ -151,6 +151,39 @@ pub fn plan_review_cleanup(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AllowedCookieHost {
+    pub profile_path: PathBuf,
+    pub host: String,
+}
+
+pub fn plan_balanced_cleanup(
+    findings: &[Finding],
+    allowlist: &[AllowedCookieHost],
+) -> Result<CleanupPlan, CleanupPlanError> {
+    let actions = findings
+        .iter()
+        .filter(|finding| finding.artifact_type == ArtifactType::Cookie)
+        .filter(|finding| finding.confidence == Some(Confidence::High))
+        .filter(|finding| finding.cleanup_impact != CleanupImpact::MaySignOut)
+        .filter(|finding| !cookie_is_allowlisted(finding, allowlist))
+        .map(cleanup_action_for)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(CleanupPlan {
+        mode: CleanupMode::Balanced,
+        estimated_action_count: actions.len(),
+        actions,
+        warnings: vec![],
+    })
+}
+
+fn cookie_is_allowlisted(finding: &Finding, allowlist: &[AllowedCookieHost]) -> bool {
+    allowlist.iter().any(|allowed| {
+        finding.profile.profile_path == allowed.profile_path
+            && finding.site.as_deref() == Some(allowed.host.as_str())
+    })
+}
+
 fn cleanup_action_for(finding: &Finding) -> Result<CleanupAction, CleanupPlanError> {
     let target = if finding.artifact_type == ArtifactType::Cookie {
         CleanupTarget::CookieHost {
@@ -1133,5 +1166,62 @@ mod tests {
             error.to_string(),
             "selected finding 'missing' is not available"
         );
+    }
+
+    fn cookie_finding(
+        id: &str,
+        host: &str,
+        confidence: Option<Confidence>,
+        impact: CleanupImpact,
+    ) -> Finding {
+        Finding {
+            id: id.into(),
+            profile: profile_at(std::path::Path::new(r"C:\Chrome\User Data\Default")),
+            artifact_type: ArtifactType::Cookie,
+            site: Some(host.into()),
+            evidence_summary: "cookie host found in browser profile".into(),
+            confidence,
+            cleanup_impact: impact,
+        }
+    }
+
+    #[test]
+    fn balanced_plan_selects_only_high_confidence_non_allowlisted_trackers() {
+        let findings = vec![
+            cookie_finding(
+                "safe",
+                "analytics.example",
+                Some(Confidence::High),
+                CleanupImpact::MayRemovePreferences,
+            ),
+            cookie_finding(
+                "allowlisted",
+                "allowed.example",
+                Some(Confidence::High),
+                CleanupImpact::MayRemovePreferences,
+            ),
+            cookie_finding(
+                "ambiguous",
+                "unknown.example",
+                None,
+                CleanupImpact::ReviewRequired,
+            ),
+            cookie_finding(
+                "login",
+                "login.example",
+                Some(Confidence::High),
+                CleanupImpact::MaySignOut,
+            ),
+        ];
+        let allowlist = vec![AllowedCookieHost {
+            profile_path: r"C:\Chrome\User Data\Default".into(),
+            host: "allowed.example".into(),
+        }];
+
+        let plan = plan_balanced_cleanup(&findings, &allowlist).unwrap();
+
+        assert_eq!(plan.mode, CleanupMode::Balanced);
+        assert_eq!(plan.actions.len(), 1);
+        assert_eq!(plan.actions[0].id, "safe");
     }
 }
