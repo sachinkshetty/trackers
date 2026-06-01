@@ -43,6 +43,35 @@ pub struct TrackerRule {
     pub source_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupplementalRuleSet {
+    pub source: RuleSource,
+    pub rules: Vec<SupplementalRule>,
+}
+
+impl SupplementalRuleSet {
+    pub fn from_json(json: &str) -> Result<Self, RuleBundleError> {
+        let input: Self = serde_json::from_str(json)?;
+        validate_source(&input.source)?;
+        for rule in &input.rules {
+            if !is_valid_domain(&rule.domain) {
+                return Err(RuleBundleError::Validation(format!(
+                    "invalid tracker domain '{}'",
+                    rule.domain
+                )));
+            }
+        }
+        Ok(input)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupplementalRule {
+    pub domain: String,
+    pub category: TrackerCategory,
+    pub confidence: Confidence,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackerCategory {
@@ -64,6 +93,7 @@ pub enum Confidence {
 pub enum RuleBundleError {
     Json(serde_json::Error),
     UnsupportedSchemaVersion(u32),
+    Validation(String),
 }
 
 impl fmt::Display for RuleBundleError {
@@ -74,6 +104,7 @@ impl fmt::Display for RuleBundleError {
                 formatter,
                 "unsupported rule-bundle schema version {version}; supported version is {SUPPORTED_SCHEMA_VERSION}"
             ),
+            Self::Validation(message) => formatter.write_str(message),
         }
     }
 }
@@ -135,4 +166,100 @@ mod tests {
             "unsupported rule-bundle schema version 999; supported version is 1"
         );
     }
+
+    #[test]
+    fn supplemental_input_accepts_reviewed_source_metadata() {
+        let json = r#"{
+            "source": {
+                "id": "supplemental",
+                "name": "Reviewed supplemental rules",
+                "url": "https://github.com/sachinkshetty/trackers",
+                "license": "MIT OR Apache-2.0",
+                "attribution": "Browser Tracker Cleaner contributors"
+            },
+            "rules": [{
+                "domain": "analytics.example",
+                "category": "analytics",
+                "confidence": "high"
+            }]
+        }"#;
+
+        let input = SupplementalRuleSet::from_json(json).unwrap();
+
+        assert_eq!(input.rules[0].domain, "analytics.example");
+    }
+
+    #[test]
+    fn supplemental_input_rejects_missing_license() {
+        let json = r#"{
+            "source": {
+                "id": "supplemental",
+                "name": "Reviewed supplemental rules",
+                "url": "https://github.com/sachinkshetty/trackers",
+                "license": "",
+                "attribution": "Browser Tracker Cleaner contributors"
+            },
+            "rules": []
+        }"#;
+
+        let error = SupplementalRuleSet::from_json(json).unwrap_err();
+
+        assert_eq!(error.to_string(), "source license must not be empty");
+    }
+
+    #[test]
+    fn supplemental_input_rejects_invalid_domain() {
+        let json = r#"{
+            "source": {
+                "id": "supplemental",
+                "name": "Reviewed supplemental rules",
+                "url": "https://github.com/sachinkshetty/trackers",
+                "license": "MIT OR Apache-2.0",
+                "attribution": "Browser Tracker Cleaner contributors"
+            },
+            "rules": [{
+                "domain": "https://analytics.example/path",
+                "category": "analytics",
+                "confidence": "high"
+            }]
+        }"#;
+
+        let error = SupplementalRuleSet::from_json(json).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid tracker domain 'https://analytics.example/path'"
+        );
+    }
+}
+
+fn validate_source(source: &RuleSource) -> Result<(), RuleBundleError> {
+    for (field, value) in [
+        ("id", &source.id),
+        ("name", &source.name),
+        ("url", &source.url),
+        ("license", &source.license),
+        ("attribution", &source.attribution),
+    ] {
+        if value.trim().is_empty() {
+            return Err(RuleBundleError::Validation(format!(
+                "source {field} must not be empty"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn is_valid_domain(domain: &str) -> bool {
+    !domain.is_empty()
+        && domain == domain.to_ascii_lowercase()
+        && domain.contains('.')
+        && domain.split('.').all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|character| character.is_ascii_alphanumeric() || character == b'-')
+        })
 }
