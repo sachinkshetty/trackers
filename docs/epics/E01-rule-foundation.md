@@ -26,7 +26,7 @@ Define the human-editable format for product-specific rules.
 - Invalid domains and missing metadata are rejected.
 
 ### E01-S03 Compile deterministic bundles
-**Status:** todo
+**Status:** done
 
 Build normalized desktop and Manifest V3 rule artifacts.
 

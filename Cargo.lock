@@ -39,6 +39,11 @@ version = "0.1.0"
 [[package]]
 name = "rule-compiler"
 version = "0.1.0"
+dependencies = [
+ "rule-format",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "rule-format"
