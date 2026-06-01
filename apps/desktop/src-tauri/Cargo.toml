@@ -12,6 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = "2.6.2"
 
 [dependencies]
+rule-format = { path = "../../../crates/rule-format" }
 scanner-core = { path = "../../../crates/scanner-core" }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2.11.2" }

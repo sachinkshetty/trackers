@@ -3630,6 +3630,7 @@ dependencies = [
 name = "trackers-desktop"
 version = "0.1.0"
 dependencies = [
+ "rule-format",
  "scanner-core",
  "serde",
  "tauri",

@@ -1,4 +1,4 @@
-use scanner_core::{discover_chrome_profiles, discover_edge_profiles, DiscoveryResult};
+use scanner_core::{DiscoveryResult, discover_chrome_profiles, discover_edge_profiles};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -27,11 +27,17 @@ pub fn discover_profiles(request: ProfileDiscoveryRequest) -> DesktopBootstrap {
 }
 
 fn default_chrome_root() -> PathBuf {
-    windows_profile_root().join("Google").join("Chrome").join("User Data")
+    windows_profile_root()
+        .join("Google")
+        .join("Chrome")
+        .join("User Data")
 }
 
 fn default_edge_root() -> PathBuf {
-    windows_profile_root().join("Microsoft").join("Edge").join("User Data")
+    windows_profile_root()
+        .join("Microsoft")
+        .join("Edge")
+        .join("User Data")
 }
 
 fn windows_profile_root() -> PathBuf {
