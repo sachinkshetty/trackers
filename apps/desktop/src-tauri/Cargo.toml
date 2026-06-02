@@ -9,13 +9,14 @@ name = "trackers_desktop"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = "2.6.2"
+tauri-build = { version = "2.6.2", features = [] }
 
 [dependencies]
 rule-format = { path = "../../../crates/rule-format" }
 scanner-core = { path = "../../../crates/scanner-core" }
 serde = { version = "1", features = ["derive"] }
-tauri = { version = "2.11.2" }
+tauri = { version = "2.11.2", features = [] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 
 [dev-dependencies]
 tempfile = "3"

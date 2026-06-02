@@ -14,10 +14,10 @@
       "id": "easyprivacy",
       "name": "EasyPrivacy",
       "url": "https://easylist.to/pages/licence.html",
-      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0-or-later",
+      "license": "CC-BY-SA-3.0-or-later",
       "attribution": "The EasyList authors (https://easylist.to/)",
       "update_method": "Fetch an official EasyPrivacy subscription and compile supported rules",
-      "status": "deferred-share-alike-review"
+      "status": "selected-cc-by-sa"
     },
     {
       "id": "adguard-filters",

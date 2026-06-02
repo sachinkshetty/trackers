@@ -3,11 +3,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const expectedPermissions = ["declarativeNetRequest", "storage"];
+const expectedPermissions = [
+  "declarativeNetRequest",
+  "declarativeNetRequestFeedback",
+  "storage",
+];
 const requiredFiles = [
   "manifest.json",
   "dist/service-worker.js",
-  "rules/starter.json",
 ];
 
 export function validatePackageFiles(browser) {
@@ -15,11 +18,17 @@ export function validatePackageFiles(browser) {
   const manifest = JSON.parse(
     readFileSync(join(packageRoot, "manifest.json"), "utf8"),
   );
+  const ruleFiles = manifest.declarative_net_request.rule_resources.map(
+    ({ path }) => path,
+  );
+  const popupFiles = manifest.action.default_popup
+    ? [manifest.action.default_popup]
+    : [];
   return {
     browser,
     manifestVersion: manifest.manifest_version,
     requiredPermissions: manifest.permissions,
-    missingFiles: requiredFiles.filter(
+    missingFiles: [...requiredFiles, ...ruleFiles, ...popupFiles].filter(
       (relativePath) => !existsSync(join(packageRoot, relativePath)),
     ),
   };

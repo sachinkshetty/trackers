@@ -60,11 +60,32 @@ app.innerHTML = `
               <button class="button" data-cleanup-mode="balanced">Balanced</button>
               <button class="button" data-cleanup-mode="aggressive">Aggressive</button>
             </div>
+            <label class="cleanup-filter">
+              Browser
+              <select data-cleanup-browser>
+                <option value="all">All browsers</option>
+                <option value="chrome">Chrome</option>
+                <option value="edge">Edge</option>
+              </select>
+            </label>
+            <label class="cleanup-filter">
+              Locked items
+              <select data-lock-resolution>
+                <option value="retryAfterManualClose">Retry after manual close</option>
+                <option value="skipLocked">Skip locked actions</option>
+                <option value="requestAutomaticClose">Request automatic close</option>
+              </select>
+            </label>
             <label class="confirm-toggle">
               <input type="checkbox" data-aggressive-confirm />
               Confirm aggressive cleanup
             </label>
+            <label class="confirm-toggle">
+              <input type="checkbox" data-auto-close-confirm />
+              Confirm automatic browser close
+            </label>
             <button class="button primary" data-preview-cleanup disabled>Preview cleanup</button>
+            <button class="button" data-execute-cleanup disabled>Clean trackers</button>
           </div>
           <div class="stack" data-cleanup-preview></div>
         </article>
@@ -114,8 +135,12 @@ const resultsSummary = app.querySelector('[data-results-summary]');
 const cleanupSummary = app.querySelector('[data-cleanup-summary]');
 const cleanupPreviewContainer = app.querySelector('[data-cleanup-preview]');
 const previewCleanupButton = app.querySelector('[data-preview-cleanup]');
+const executeCleanupButton = app.querySelector('[data-execute-cleanup]');
 const aggressiveConfirm = app.querySelector('[data-aggressive-confirm]');
+const autoCloseConfirm = app.querySelector('[data-auto-close-confirm]');
 const cleanupModeButtons = app.querySelectorAll('[data-cleanup-mode]');
+const cleanupBrowser = app.querySelector('[data-cleanup-browser]');
+const lockResolution = app.querySelector('[data-lock-resolution]');
 const settingsSummary = app.querySelector('[data-settings-summary]');
 const ruleVersion = app.querySelector('[data-rule-version]');
 const updateState = app.querySelector('[data-update-state]');
@@ -129,7 +154,13 @@ const state = {
   scanResult: null,
   expertMode: false,
   cleanupMode: 'review',
+  cleanupBrowser: 'all',
+  cleanupLockResolution: 'retryAfterManualClose',
+  aggressiveConfirmed: false,
+  automaticCloseConfirmed: false,
   cleanupPreview: null,
+  cleanupExecution: null,
+  cleanupPreviewRunning: false,
   scanRunning: false,
   settings: {
     ruleBundleVersion: 'loading',
@@ -265,15 +296,43 @@ function renderResults() {
 }
 
 function renderCleanupPreview() {
-  if (!state.cleanupPreview) {
-    cleanupSummary.textContent = 'No cleanup plan yet.';
-    cleanupPreviewContainer.innerHTML =
-      '<p class="empty">Preview a cleanup mode to review actions and locked-item choices.</p>';
+  if (state.cleanupPreviewRunning) {
+    cleanupSummary.textContent = 'Generating cleanup preview...';
+    cleanupPreviewContainer.innerHTML = `
+      <div class="preview-loading" aria-live="polite" aria-busy="true">
+        <div class="preview-loading__spinner" aria-hidden="true"></div>
+        <div>
+          <strong>Generating cleanup preview</strong>
+          <p class="subtle">Building the cleanup plan from the latest scan. This can take a moment.</p>
+        </div>
+      </div>
+    `;
     return;
   }
 
-  const { plan, lockedActionIds, warnings, requiresConfirmation } = state.cleanupPreview;
-  cleanupSummary.textContent = `${plan.mode} mode · ${plan.actions.length} action(s) · ${lockedActionIds.length} locked`;
+  if (!state.cleanupPreview) {
+    cleanupSummary.textContent = 'No cleanup plan yet.';
+    cleanupPreviewContainer.innerHTML =
+      '<p class="empty">Run a scan, then preview a cleanup mode to review actions and locked-item choices.</p>';
+    return;
+  }
+
+  const plan = state.cleanupPreview.plan;
+  const lockedActionIds = state.cleanupPreview.lockedActionIds ?? state.cleanupPreview.locked_action_ids ?? [];
+  const lockedProfiles = state.cleanupPreview.lockedProfiles ?? state.cleanupPreview.locked_profiles ?? [];
+  const warnings = state.cleanupPreview.warnings ?? [];
+  const requiresConfirmation =
+    state.cleanupPreview.requiresConfirmation ?? state.cleanupPreview.requires_confirmation ?? false;
+  const actionCount = plan.actions?.length ?? 0;
+  const browserLabel = state.cleanupBrowser === 'all'
+    ? 'all browsers'
+    : state.cleanupBrowser;
+  const lockLabel = {
+    retryAfterManualClose: 'Retry after manual close',
+    skipLocked: 'Skip locked actions',
+    requestAutomaticClose: 'Request automatic close',
+  }[state.cleanupLockResolution];
+  cleanupSummary.textContent = `${plan.mode} mode · ${browserLabel} · ${actionCount} action(s) · ${lockedActionIds.length} locked · ${lockLabel}`;
 
   cleanupPreviewContainer.innerHTML = `
     <div class="row">
@@ -290,24 +349,64 @@ function renderCleanupPreview() {
       </div>
     </div>
     <div class="row">
-      <strong>Planned actions</strong>
+      <strong>Locked profiles</strong>
       <div class="stack nested">
-        ${plan.actions
-          .map(
-            (action) => `
+        ${lockedProfiles.length === 0
+          ? '<p class="empty">No browser profiles are blocking cleanup.</p>'
+          : lockedProfiles.map((profile) => `
               <div class="row artifact">
                 <div class="artifact-head">
-                  <strong>${action.id}</strong>
-                  <span>${action.artifactType}</span>
-                  <span>${action.requiresBrowserClosed ? 'browser close required' : 'ready'}</span>
+                  <strong>${profile.browser}</strong>
+                  <span>${profile.profileName ?? profile.profile_name}</span>
                 </div>
-                <p class="artifact-detail">${action.target.kind}</p>
+                <p class="artifact-detail">${profile.profilePath ?? profile.profile_path}</p>
               </div>
-            `,
-          )
-          .join('')}
+            `).join('')}
       </div>
     </div>
+    <div class="row">
+      <strong>Lock handling</strong>
+      <p class="subtle">Selected action: ${lockLabel}.</p>
+      ${state.cleanupLockResolution === 'requestAutomaticClose'
+        ? `<p class="row warning">${autoCloseConfirm.checked ? 'Automatic browser closure will be requested on cleanup.' : 'Check confirmation to enable browser closure during cleanup.'}</p>`
+        : ''}
+    </div>
+    <div class="row">
+      <strong>Planned actions</strong>
+      <div class="stack nested">
+        ${actionCount === 0
+          ? '<p class="empty">This mode selected no cleanup actions for the current scan.</p>'
+          : plan.actions
+              .map(
+                (action) => `
+                  <div class="row artifact">
+                    <div class="artifact-head">
+                      <strong>${action.id}</strong>
+                      <span>${action.artifactType ?? action.artifact_type}</span>
+                      <span>${action.requiresBrowserClosed ?? action.requires_browser_closed ? 'browser close required' : 'ready'}</span>
+                    </div>
+                    <p class="artifact-detail">${action.target.kind}</p>
+                  </div>
+                `,
+              )
+              .join('')}
+      </div>
+    </div>
+    ${state.cleanupExecution ? `
+      <div class="row">
+        <strong>Cleanup result</strong>
+        <div class="stack nested">
+          <p class="row">Completed: ${(state.cleanupExecution.execution.completedIds ?? state.cleanupExecution.execution.completed_ids ?? []).length}</p>
+          <p class="row">Skipped: ${(state.cleanupExecution.execution.skippedIds ?? state.cleanupExecution.execution.skipped_ids ?? []).length}</p>
+          <p class="row">Failed: ${(state.cleanupExecution.execution.failed ?? []).length}</p>
+          ${(state.cleanupExecution.execution.failed ?? []).length === 0
+            ? ''
+            : (state.cleanupExecution.execution.failed ?? [])
+                .map((failure) => `<p class="row warning">${failure.id}: ${failure.message}</p>`)
+                .join('')}
+        </div>
+      </div>
+    ` : ''}
   `;
 }
 
@@ -321,11 +420,25 @@ function renderSettings() {
 }
 
 function syncCleanupControls() {
-  aggressiveConfirm.disabled = state.cleanupMode !== 'aggressive' || state.scanRunning;
+  aggressiveConfirm.disabled = state.scanRunning || state.cleanupMode !== 'aggressive';
+  autoCloseConfirm.disabled = state.scanRunning || state.cleanupLockResolution !== 'requestAutomaticClose';
+  previewCleanupButton.textContent = state.cleanupPreviewRunning
+    ? 'Generating...'
+    : 'Preview cleanup';
   previewCleanupButton.disabled =
     state.scanRunning ||
+    state.cleanupPreviewRunning ||
     !state.scanResult ||
     (state.cleanupMode === 'aggressive' && !aggressiveConfirm.checked);
+  executeCleanupButton.disabled =
+    state.scanRunning ||
+    state.cleanupPreviewRunning ||
+    !state.cleanupPreview ||
+    (state.cleanupMode === 'aggressive' && !aggressiveConfirm.checked) ||
+    (state.cleanupLockResolution === 'requestAutomaticClose' && !autoCloseConfirm.checked);
+  executeCleanupButton.textContent = state.cleanupLockResolution === 'requestAutomaticClose'
+    ? 'Close browsers and clean'
+    : 'Clean trackers';
 }
 
 function setRunning(running) {
@@ -371,10 +484,43 @@ function writeStoredFlag(key, value) {
   }
 }
 
-function allFindingIds(scanResult) {
-  return (scanResult?.profiles ?? []).flatMap((profile) =>
-    profile.findings.map((finding) => finding.id),
-  );
+function cleanableFindingIds(scanResult) {
+  return cleanablePreviewFindings(scanResult).map((finding) => finding.id);
+}
+
+function cleanablePreviewFindings(scanResult) {
+  const cleanableArtifactTypes = new Set([
+    'cookie',
+    'local_storage',
+    'indexed_db',
+    'cache',
+    'history',
+    'service_worker',
+  ]);
+
+  return (scanResult?.profiles ?? [])
+    .filter((profile) =>
+      state.cleanupBrowser === 'all' ||
+      profile.browser.toLowerCase() === state.cleanupBrowser,
+    )
+    .flatMap((profile) =>
+      profile.findings
+      .filter((finding) =>
+        cleanableArtifactTypes.has(finding.artifact_type) &&
+        (finding.artifact_type !== 'cookie' || Boolean(finding.site)),
+      )
+      .map((finding) => ({
+        id: finding.id,
+        artifactType: finding.artifact_type,
+        site: finding.site,
+        confidence: finding.confidence,
+        cleanupImpact: finding.cleanup_impact,
+      })),
+    );
+}
+
+function selectedCleanupFindingIds(scanResult) {
+  return cleanableFindingIds(scanResult);
 }
 
 function flattenWarnings(scanResult) {
@@ -407,7 +553,9 @@ function registerListeners() {
 }
 
 async function loadDiscovery() {
-  const snapshot = await invoke('discover_profiles', {});
+  const snapshot = await invoke('discover_profiles', {
+    request: {},
+  });
   state.discovery = snapshot;
   renderProfiles();
   state.warnings = browserWarnings(snapshot).map((warning) => warning.message);
@@ -439,6 +587,7 @@ async function startScan() {
   state.progress = [];
   state.scanResult = null;
   state.cleanupPreview = null;
+  state.cleanupExecution = null;
   state.warnings = browserWarnings(state.discovery).map((warning) => warning.message);
   renderProgress();
   renderWarnings();
@@ -468,18 +617,62 @@ async function previewCleanup() {
     return;
   }
 
-  const preview = await invoke('preview_cleanup', {
+  state.cleanupPreviewRunning = true;
+  syncCleanupControls();
+  setStatus('Generating cleanup preview...');
+
+  try {
+    const preview = await invoke('preview_cleanup', {
+      request: {
+        mode: state.cleanupMode,
+        selectedFindingIds: selectedCleanupFindingIds(state.scanResult),
+        aggressiveConfirmed: state.cleanupMode !== 'aggressive' || aggressiveConfirm.checked,
+      },
+    });
+
+    state.cleanupPreview = preview;
+    state.cleanupExecution = null;
+    renderCleanupPreview();
+    setStatus(`Cleanup preview ready in ${state.cleanupMode} mode.`);
+  } finally {
+    state.cleanupPreviewRunning = false;
+    syncCleanupControls();
+    renderCleanupPreview();
+  }
+}
+
+async function executeCleanup() {
+  if (!state.cleanupPreview || state.scanRunning) {
+    return;
+  }
+
+  const result = await invoke('execute_cleanup', {
     request: {
-      scanResult: state.scanResult,
-      mode: state.cleanupMode,
-      selectedFindingIds: allFindingIds(state.scanResult),
-      aggressiveConfirmed: state.cleanupMode !== 'aggressive' || aggressiveConfirm.checked,
+      preview: state.cleanupPreview,
+      lockResolution: (() => {
+        if (state.cleanupLockResolution === 'requestAutomaticClose') {
+          return { requestAutomaticClose: { confirmed: autoCloseConfirm.checked } };
+        }
+        if (state.cleanupLockResolution === 'skipLocked') {
+          return 'skipLocked';
+        }
+        return 'retryAfterManualClose';
+      })(),
     },
   });
 
-  state.cleanupPreview = preview;
+  state.cleanupExecution = result;
   renderCleanupPreview();
-  setStatus(`Cleanup preview ready in ${state.cleanupMode} mode.`);
+
+  const execution = result.execution;
+  const skippedIds = execution.skippedIds ?? execution.skipped_ids ?? [];
+  if (execution.failed.length > 0) {
+    setStatus(`Cleanup finished with ${execution.failed.length} failure(s).`);
+  } else if (skippedIds.length > 0) {
+    setStatus(`Cleanup finished with ${skippedIds.length} skipped action(s).`);
+  } else {
+    setStatus('Cleanup finished successfully.');
+  }
 }
 
 function toggleExpertMode() {
@@ -498,6 +691,15 @@ function setCleanupMode(mode) {
     aggressiveConfirm.checked = false;
   }
   state.cleanupPreview = null;
+  state.cleanupExecution = null;
+  renderCleanupPreview();
+  syncCleanupControls();
+}
+
+function setCleanupBrowser(browser) {
+  state.cleanupBrowser = browser;
+  state.cleanupPreview = null;
+  state.cleanupExecution = null;
   renderCleanupPreview();
   syncCleanupControls();
 }
@@ -535,6 +737,12 @@ previewCleanupButton.addEventListener('click', () => {
   });
 });
 
+executeCleanupButton.addEventListener('click', () => {
+  executeCleanup().catch((error) => {
+    setStatus(`Cleanup failed: ${error}`);
+  });
+});
+
 cleanupModeButtons.forEach((button) => {
   button.addEventListener('click', () => {
     setCleanupMode(button.dataset.cleanupMode);
@@ -542,8 +750,30 @@ cleanupModeButtons.forEach((button) => {
 });
 
 aggressiveConfirm.addEventListener('change', () => {
-  syncCleanupControls();
+  state.aggressiveConfirmed = aggressiveConfirm.checked;
   state.cleanupPreview = null;
+  renderCleanupPreview();
+  syncCleanupControls();
+});
+
+cleanupBrowser.addEventListener('change', () => {
+  setCleanupBrowser(cleanupBrowser.value);
+});
+
+lockResolution.addEventListener('change', () => {
+  state.cleanupLockResolution = lockResolution.value;
+  if (state.cleanupLockResolution !== 'requestAutomaticClose') {
+    autoCloseConfirm.checked = false;
+  }
+  state.cleanupPreview = null;
+  state.cleanupExecution = null;
+  renderCleanupPreview();
+  syncCleanupControls();
+});
+
+autoCloseConfirm.addEventListener('change', () => {
+  state.automaticCloseConfirmed = autoCloseConfirm.checked;
+  syncCleanupControls();
   renderCleanupPreview();
 });
 
@@ -557,6 +787,7 @@ diagnosticsOptIn.addEventListener('change', () => {
 
 registerListeners();
 setCleanupMode('review');
+lockResolution.value = state.cleanupLockResolution;
 renderSettings();
 loadDiscovery().catch((error) => {
   setStatus(`Failed to load profiles: ${error}`);

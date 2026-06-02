@@ -137,12 +137,64 @@ h1 {
   align-items: center;
 }
 
+.preview-loading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(111, 161, 255, 0.38);
+  background:
+    linear-gradient(135deg, rgba(79, 124, 255, 0.24), rgba(111, 161, 255, 0.08)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 1px rgba(111, 161, 255, 0.1) inset;
+}
+
+.preview-loading strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #f4f7ff;
+}
+
+.preview-loading__spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(232, 235, 242, 0.24);
+  border-top-color: #6fa1ff;
+  animation: preview-spin 0.85s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .confirm-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   color: #c1c8dc;
   font-size: 0.92rem;
+}
+
+.cleanup-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #c1c8dc;
+  font-size: 0.92rem;
+}
+
+.cleanup-filter select {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: #181d29;
+  color: #e8ebf2;
+  padding: 8px 12px;
+  font: inherit;
 }
 
 .setting-toggle {

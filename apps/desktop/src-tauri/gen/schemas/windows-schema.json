@@ -177,16 +177,76 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the cancel_scan command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-scan",
+          "markdownDescription": "Enables the cancel_scan command without any pre-configured scope."
+        },
+        {
           "description": "Enables the discover_profiles command without any pre-configured scope.",
           "type": "string",
           "const": "allow-discover-profiles",
           "markdownDescription": "Enables the discover_profiles command without any pre-configured scope."
         },
         {
+          "description": "Enables the execute_cleanup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-execute-cleanup",
+          "markdownDescription": "Enables the execute_cleanup command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_cleanup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-cleanup",
+          "markdownDescription": "Enables the preview_cleanup command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the settings_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-settings-snapshot",
+          "markdownDescription": "Enables the settings_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the start_scan command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-scan",
+          "markdownDescription": "Enables the start_scan command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_scan command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-scan",
+          "markdownDescription": "Denies the cancel_scan command without any pre-configured scope."
+        },
+        {
           "description": "Denies the discover_profiles command without any pre-configured scope.",
           "type": "string",
           "const": "deny-discover-profiles",
           "markdownDescription": "Denies the discover_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the execute_cleanup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-execute-cleanup",
+          "markdownDescription": "Denies the execute_cleanup command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_cleanup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-cleanup",
+          "markdownDescription": "Denies the preview_cleanup command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the settings_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-settings-snapshot",
+          "markdownDescription": "Denies the settings_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_scan command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-scan",
+          "markdownDescription": "Denies the start_scan command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

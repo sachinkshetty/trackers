@@ -29,7 +29,10 @@ mod tests {
     fn settings_snapshot_exposes_rule_version_and_update_state() {
         let snapshot = settings_snapshot();
 
-        assert_eq!(snapshot.rule_bundle_version, "embedded-starter");
+        assert_eq!(
+            snapshot.rule_bundle_version,
+            embedded_rule_bundle().bundle_version
+        );
         assert!(matches!(
             snapshot.update_state,
             UpdateState::EmbeddedStarterBundle

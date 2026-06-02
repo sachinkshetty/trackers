@@ -5,14 +5,20 @@
   "description": "Blocks known browser trackers locally.",
   "permissions": [
     "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
     "storage"
   ],
   "declarative_net_request": {
     "rule_resources": [
       {
-        "id": "starter_rules",
+        "id": "easyprivacy_rules_1",
         "enabled": true,
-        "path": "rules/starter.json"
+        "path": "rules/easyprivacy-1.json"
+      },
+      {
+        "id": "easyprivacy_rules_2",
+        "enabled": true,
+        "path": "rules/easyprivacy-2.json"
       }
     ]
   },
@@ -21,7 +27,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Browser Tracker Cleaner"
+    "default_title": "Browser Tracker Cleaner",
+    "default_popup": "popup.html"
   }
 }
-

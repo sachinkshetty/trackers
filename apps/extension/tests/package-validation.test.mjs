@@ -8,7 +8,11 @@ test("Chrome and Edge packages contain required local extension assets", () => {
     assert.deepEqual(validatePackageFiles(browser), {
       browser,
       manifestVersion: 3,
-      requiredPermissions: ["declarativeNetRequest", "storage"],
+      requiredPermissions: [
+        "declarativeNetRequest",
+        "declarativeNetRequestFeedback",
+        "storage",
+      ],
       missingFiles: [],
     });
   }
