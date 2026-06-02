@@ -1,5 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import {
+  cleanupArtifactImpact,
+  cleanupImpactLabel,
+  cleanupScopeLabel,
+} from './cleanup-preview.js';
 import { buildLayeredResults } from './results.js';
 import './style.css';
 
@@ -342,7 +347,7 @@ function renderCleanupPreview() {
     skipLocked: 'Skip locked actions',
     requestAutomaticClose: 'Request automatic close',
   }[state.cleanupLockResolution];
-  cleanupSummary.textContent = `${plan.mode} mode · ${browserLabel} · ${selectedFindings.length} selected · ${trackerFindings.length} tracker item(s) · ${generalFindings.length} general item(s) · ${lockedActionIds.length} locked · ${lockLabel}`;
+  cleanupSummary.textContent = `${cleanupScopeLabel(state.includeGeneralCleanup)} · ${plan.mode} mode · ${browserLabel} · ${selectedFindings.length} selected · ${trackerFindings.length} tracker item(s) · ${generalFindings.length} general item(s) · ${lockedActionIds.length} locked · ${lockLabel}`;
 
   cleanupPreviewContainer.innerHTML = `
     <div class="row">
@@ -364,8 +369,10 @@ function renderCleanupPreview() {
                     <div class="artifact-head">
                       <strong>${finding.artifactType}</strong>
                       <span>${finding.site ?? 'tracker-owned'}</span>
+                      <span>${cleanupImpactLabel(finding.cleanupImpact)}</span>
                     </div>
                     <p class="artifact-detail">${finding.id}</p>
+                    <p class="artifact-detail">${cleanupArtifactImpact(finding.artifactType, finding.cleanupImpact)}</p>
                   </div>
                 `,
               )
@@ -373,7 +380,7 @@ function renderCleanupPreview() {
       </div>
     </div>
     <div class="row">
-      <strong>General browser data</strong>
+      <strong>General privacy cleanup</strong>
       <p class="subtle">${generalFindings.length === 0 ? 'No general browser data was identified for this scan.' : 'General cache, history, and ambiguous site data remain unselected unless you explicitly include them.'}</p>
       <div class="stack nested">
         ${generalFindings.length === 0
@@ -385,12 +392,38 @@ function renderCleanupPreview() {
                     <div class="artifact-head">
                       <strong>${finding.artifactType}</strong>
                       <span>${finding.site ?? 'browser data'}</span>
+                      <span>${cleanupImpactLabel(finding.cleanupImpact)}</span>
                     </div>
                     <p class="artifact-detail">${finding.id}</p>
+                    <p class="artifact-detail">${cleanupArtifactImpact(finding.artifactType, finding.cleanupImpact)}</p>
                   </div>
                 `,
               )
               .join('')}
+      </div>
+    </div>
+    <div class="row">
+      <strong>Impact guide</strong>
+      <p class="subtle">Cleanup impact depends on the artifact type. This guide explains the common effects before you continue.</p>
+      <div class="stack nested">
+        ${[
+          ['cookie', 'may_sign_out'],
+          ['local_storage', 'may_remove_preferences'],
+          ['indexed_db', 'review_required'],
+          ['cache', 'review_required'],
+          ['service_worker', 'review_required'],
+          ['history', 'review_required'],
+        ]
+          .map(([artifactType, cleanupImpact]) => `
+            <div class="row artifact">
+              <div class="artifact-head">
+                <strong>${artifactType}</strong>
+                <span>${cleanupImpactLabel(cleanupImpact)}</span>
+              </div>
+              <p class="artifact-detail">${cleanupArtifactImpact(artifactType, cleanupImpact)}</p>
+            </div>
+          `)
+          .join('')}
       </div>
     </div>
     <div class="row">
