@@ -6,7 +6,7 @@ profile directories by default.
 ## Stories
 
 ### E11-S01 Inventory storage by origin where supported
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Local Storage, IndexedDB, Cache, and Service Worker findings identify origins where Chromium storage layout permits it.
