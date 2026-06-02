@@ -5,6 +5,10 @@ use crate::cleanup::{
     CleanupExecuteRequest, CleanupExecuteResult, CleanupPreviewRequest, CleanupPreviewResult,
     execute_cleanup as execute_cleanup_snapshot, preview_cleanup as preview_cleanup_snapshot,
 };
+use crate::audit::{
+    CleanupAuditHistory, clear_cleanup_audit_history as clear_cleanup_audit_history_snapshot,
+    cleanup_audit_history as cleanup_audit_history_snapshot,
+};
 use crate::scan::{
     CancellationFlag, ScanProgress, ScanRequest, ScanRunResult, embedded_rule_bundle, run_scan,
     scan_profile,
@@ -47,6 +51,16 @@ pub fn execute_cleanup(
 #[tauri::command]
 pub fn settings_snapshot() -> DesktopSettingsSnapshot {
     settings_snapshot_snapshot()
+}
+
+#[tauri::command]
+pub fn cleanup_audit_history() -> Result<CleanupAuditHistory, String> {
+    cleanup_audit_history_snapshot()
+}
+
+#[tauri::command]
+pub fn clear_cleanup_audit_history() -> Result<(), String> {
+    clear_cleanup_audit_history_snapshot()
 }
 
 #[tauri::command]

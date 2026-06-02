@@ -14,7 +14,7 @@ recovery path for destructive changes.
 - Tracker cleanup and general privacy cleanup use distinct labels.
 
 ### E12-S02 Add cleanup audit records
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Each cleanup run records timestamp, browser, profile, mode, rule-bundle version, and action outcome.

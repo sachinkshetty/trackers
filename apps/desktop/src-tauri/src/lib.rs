@@ -1,4 +1,5 @@
 mod backend;
+pub mod audit;
 mod cleanup;
 mod commands;
 mod scan;
@@ -16,6 +17,8 @@ pub fn run() {
             commands::cancel_scan,
             commands::preview_cleanup,
             commands::execute_cleanup,
+            commands::cleanup_audit_history,
+            commands::clear_cleanup_audit_history,
             commands::settings_snapshot
         ])
         .run(tauri::generate_context!())

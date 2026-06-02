@@ -127,6 +127,17 @@ app.innerHTML = `
             </p>
           </div>
         </article>
+
+        <article class="card results-card">
+          <div class="results-header">
+            <h2>Cleanup history</h2>
+            <p class="subtle" data-cleanup-history-summary>No cleanup history yet.</p>
+          </div>
+          <div class="toolbar cleanup-toolbar">
+            <button class="button" data-clear-cleanup-history disabled>Clear history</button>
+          </div>
+          <div class="stack" data-cleanup-history></div>
+        </article>
       </div>
     </section>
   </main>
@@ -156,6 +167,9 @@ const ruleVersion = app.querySelector('[data-rule-version]');
 const updateState = app.querySelector('[data-update-state]');
 const telemetryOptIn = app.querySelector('[data-telemetry-opt-in]');
 const diagnosticsOptIn = app.querySelector('[data-diagnostics-opt-in]');
+const cleanupHistorySummary = app.querySelector('[data-cleanup-history-summary]');
+const cleanupHistoryContainer = app.querySelector('[data-cleanup-history]');
+const clearCleanupHistoryButton = app.querySelector('[data-clear-cleanup-history]');
 
 const state = {
   discovery: null,
@@ -172,6 +186,7 @@ const state = {
   cleanupPreview: null,
   cleanupExecution: null,
   cleanupPreviewRunning: false,
+  cleanupHistory: [],
   scanRunning: false,
   settings: {
     ruleBundleVersion: 'loading',
@@ -507,6 +522,35 @@ function renderSettings() {
   diagnosticsOptIn.checked = state.settings.diagnosticsOptIn;
 }
 
+function renderCleanupHistory() {
+  const records = state.cleanupHistory ?? [];
+  cleanupHistorySummary.textContent =
+    records.length === 0 ? 'No cleanup history yet.' : `${records.length} record(s) stored locally.`;
+  clearCleanupHistoryButton.disabled = records.length === 0;
+
+  if (records.length === 0) {
+    cleanupHistoryContainer.innerHTML = '<p class="empty">Run a cleanup to record local audit history.</p>';
+    return;
+  }
+
+  cleanupHistoryContainer.innerHTML = records
+    .map(
+      (record) => `
+        <div class="row artifact">
+          <div class="artifact-head">
+            <strong>${new Date(record.timestampMs).toLocaleString()}</strong>
+            <span>${record.browser}</span>
+            <span>${record.profileName}</span>
+            <span>${record.mode}</span>
+          </div>
+          <p class="artifact-detail">${record.actionId} · ${record.artifactType} · ${formatCleanupAuditOutcome(record.outcome)}</p>
+          <p class="artifact-detail">Bundle ${record.ruleBundleVersion} · ${record.profilePath}</p>
+        </div>
+      `,
+    )
+    .join('');
+}
+
 function syncCleanupControls() {
   aggressiveConfirm.disabled = state.scanRunning || state.cleanupMode !== 'aggressive';
   autoCloseConfirm.disabled = state.scanRunning || state.cleanupLockResolution !== 'requestAutomaticClose';
@@ -580,6 +624,29 @@ function writeStoredFlag(key, value) {
 
 function cleanableFindingIds(scanResult) {
   return cleanablePreviewFindings(scanResult).map((finding) => finding.id);
+}
+
+function formatCleanupAuditOutcome(outcome) {
+  if (!outcome) {
+    return 'unknown';
+  }
+
+  if (typeof outcome === 'string') {
+    return outcome.replaceAll('_', ' ');
+  }
+
+  switch (outcome.kind) {
+    case 'completed':
+      return 'completed';
+    case 'skipped':
+      return 'skipped';
+    case 'failed':
+      return `failed: ${outcome.message}`;
+    case 'blocked':
+      return `blocked: ${outcome.reason}`;
+    default:
+      return 'unknown';
+  }
 }
 
 function isTrackerOwnedFinding(finding) {
@@ -681,6 +748,12 @@ async function loadSettings() {
   renderSettings();
 }
 
+async function loadCleanupHistory() {
+  const history = await invoke('cleanup_audit_history', {});
+  state.cleanupHistory = history.records ?? [];
+  renderCleanupHistory();
+}
+
 async function startScan() {
   if (!state.discovery || state.scanRunning) {
     return;
@@ -766,6 +839,9 @@ async function executeCleanup() {
 
   state.cleanupExecution = result;
   renderCleanupPreview();
+  loadCleanupHistory().catch((error) => {
+    setStatus(`Cleanup history refresh failed: ${error}`);
+  });
 
   const execution = result.execution;
   const skippedIds = execution.skippedIds ?? execution.skipped_ids ?? [];
@@ -895,6 +971,17 @@ diagnosticsOptIn.addEventListener('change', () => {
   setDiagnosticsOptIn(diagnosticsOptIn.checked);
 });
 
+clearCleanupHistoryButton.addEventListener('click', () => {
+  invoke('clear_cleanup_audit_history', {})
+    .then(() => loadCleanupHistory())
+    .then(() => {
+      setStatus('Cleanup history cleared.');
+    })
+    .catch((error) => {
+      setStatus(`Clear cleanup history failed: ${error}`);
+    });
+});
+
 registerListeners();
 setCleanupMode('review');
 lockResolution.value = state.cleanupLockResolution;
@@ -906,4 +993,8 @@ loadSettings().catch((error) => {
   state.settings.ruleBundleVersion = 'unavailable';
   state.settings.updateState = `Unavailable: ${error}`;
   renderSettings();
+});
+loadCleanupHistory().catch((error) => {
+  cleanupHistorySummary.textContent = `Cleanup history unavailable: ${error}`;
+  cleanupHistoryContainer.innerHTML = '<p class="empty">Unable to load cleanup history.</p>';
 });
