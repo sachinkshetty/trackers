@@ -1,7 +1,8 @@
 use rule_format::Confidence;
 use scanner_core::{
     AllowedCookieHost, ArtifactType, BrowserFamily, BrowserProfile, CleanupImpact, CleanupMode,
-    CleanupTarget, Finding, plan_aggressive_cleanup, plan_balanced_cleanup,
+    CleanupTarget, Finding, StorageOwnership, execute_cleanup, inventory_site_storage,
+    plan_aggressive_cleanup, plan_balanced_cleanup, plan_review_cleanup,
 };
 use std::path::{Path, PathBuf};
 
@@ -139,6 +140,59 @@ fn aggressive_cleanup_requires_explicit_confirmation() {
         error.to_string(),
         "aggressive cleanup requires explicit confirmation"
     );
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn precise_indexeddb_cleanup_preserves_unrelated_origins() {
+    let root = temp_directory("cleanup-indexeddb-preservation");
+    let profile_path = root.join("Default");
+    let tracker_origin_dir = profile_path
+        .join("IndexedDB")
+        .join("https_tracker.example_0.indexeddb.leveldb");
+    let unrelated_origin_dir = profile_path
+        .join("IndexedDB")
+        .join("https_other.example_0.indexeddb.leveldb");
+    std::fs::create_dir_all(&tracker_origin_dir).unwrap();
+    std::fs::create_dir_all(&unrelated_origin_dir).unwrap();
+
+    let bundle = rule_format::RuleBundle {
+        schema_version: rule_format::SUPPORTED_SCHEMA_VERSION,
+        bundle_version: "test".into(),
+        generated_at: "2026-06-01T00:00:00Z".into(),
+        sources: vec![],
+        rules: vec![rule_format::TrackerRule {
+            id: "tracker-rule".into(),
+            domain: "tracker.example".into(),
+            category: rule_format::TrackerCategory::Analytics,
+            confidence: Confidence::High,
+            source_id: "fixture".into(),
+        }],
+    };
+
+    let profile = browser_profile(&root, "Default");
+    let inventory = inventory_site_storage(&profile, &bundle);
+    let tracker_finding = inventory
+        .findings
+        .iter()
+        .find(|finding| {
+            matches!(
+                finding
+                    .classification
+                    .as_ref()
+                    .map(|classification| classification.ownership),
+                Some(StorageOwnership::TrackerOwned)
+            )
+        })
+        .expect("tracker-owned indexeddb finding should exist");
+
+    let plan = plan_review_cleanup(&inventory.findings, &[tracker_finding.id.clone()]).unwrap();
+    let result = execute_cleanup(&plan, &[]);
+
+    assert_eq!(result.completed_ids, vec![tracker_finding.id.clone()]);
+    assert!(!tracker_origin_dir.exists());
+    assert!(unrelated_origin_dir.exists());
 
     std::fs::remove_dir_all(root).unwrap();
 }

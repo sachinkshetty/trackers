@@ -46,7 +46,7 @@ profile directories by default.
 - General browser cleanup requires an explicit user selection and impact warning.
 
 ### E11-S06 Validate granular preservation rules
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Disposable profiles contain multiple sites sharing each supported artifact type.
