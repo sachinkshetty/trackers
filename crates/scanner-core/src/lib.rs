@@ -91,9 +91,35 @@ pub struct Finding {
     pub profile: BrowserProfile,
     pub artifact_type: ArtifactType,
     pub site: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<StorageClassification>,
     pub evidence_summary: String,
     pub confidence: Option<Confidence>,
     pub cleanup_impact: CleanupImpact,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageOwnership {
+    TrackerOwned,
+    SiteOwned,
+    Ambiguous,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageClassificationProvenance {
+    TrackerRules,
+    ChromiumLayout,
+    AmbiguousFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageClassification {
+    pub ownership: StorageOwnership,
+    pub provenance: StorageClassificationProvenance,
+    pub confidence: Option<Confidence>,
+    pub matched_rule_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -523,17 +549,28 @@ fn read_copied_cookies(
     for host in hosts {
         let site = host?.trim_start_matches('.').to_ascii_lowercase();
         let classification = classify_domain(bundle, &site);
+        let is_tracker_owned = classification.is_some();
+        let classification_confidence = classification
+            .as_ref()
+            .map(|classification| classification.confidence);
+        let storage_classification = classification.map(|classification| StorageClassification {
+            ownership: StorageOwnership::TrackerOwned,
+            provenance: StorageClassificationProvenance::TrackerRules,
+            confidence: Some(classification.confidence),
+            matched_rule_ids: classification.matched_rule_ids,
+        });
         findings.push(Finding {
             id: finding_id(profile, ArtifactType::Cookie, &site),
             profile: profile.clone(),
             artifact_type: ArtifactType::Cookie,
             site: Some(site),
-            evidence_summary: if classification.is_some() {
+            classification: storage_classification,
+            evidence_summary: if is_tracker_owned {
                 "cookie host matched tracker rule".into()
             } else {
                 "cookie host found in browser profile".into()
             },
-            confidence: classification.map(|classification| classification.confidence),
+            confidence: classification_confidence,
             cleanup_impact: CleanupImpact::MaySignOut,
         });
     }
@@ -562,7 +599,7 @@ fn unique_suffix() -> u128 {
         .as_nanos()
 }
 
-pub fn inventory_site_storage(profile: &BrowserProfile) -> ScanResult {
+pub fn inventory_site_storage(profile: &BrowserProfile, bundle: &RuleBundle) -> ScanResult {
     let mut findings = Vec::new();
     findings.extend(profile_level_storage_finding(
         profile,
@@ -570,7 +607,7 @@ pub fn inventory_site_storage(profile: &BrowserProfile) -> ScanResult {
         "Local Storage",
         "local_storage",
     ));
-    findings.extend(indexeddb_storage_findings(profile));
+    findings.extend(indexeddb_storage_findings(profile, bundle));
     findings.extend(profile_level_storage_finding(
         profile,
         ArtifactType::Cache,
@@ -611,13 +648,14 @@ fn profile_level_storage_finding(
         profile: profile.clone(),
         artifact_type,
         site: None,
+        classification: None,
         evidence_summary: format!("{relative_path} data is present in the browser profile"),
         confidence: None,
         cleanup_impact: CleanupImpact::ReviewRequired,
     }]
 }
 
-fn indexeddb_storage_findings(profile: &BrowserProfile) -> Vec<Finding> {
+fn indexeddb_storage_findings(profile: &BrowserProfile, bundle: &RuleBundle) -> Vec<Finding> {
     let root = profile.profile_path.join("IndexedDB");
     if !root.exists() {
         return vec![];
@@ -640,6 +678,12 @@ fn indexeddb_storage_findings(profile: &BrowserProfile) -> Vec<Finding> {
             profile: profile.clone(),
             artifact_type: ArtifactType::IndexedDb,
             site: None,
+            classification: Some(StorageClassification {
+                ownership: StorageOwnership::Ambiguous,
+                provenance: StorageClassificationProvenance::AmbiguousFallback,
+                confidence: None,
+                matched_rule_ids: vec![],
+            }),
             evidence_summary: "IndexedDB data is present in the browser profile".into(),
             confidence: None,
             cleanup_impact: CleanupImpact::ReviewRequired,
@@ -653,11 +697,41 @@ fn indexeddb_storage_findings(profile: &BrowserProfile) -> Vec<Finding> {
             profile: profile.clone(),
             artifact_type: ArtifactType::IndexedDb,
             site: Some(origin.clone()),
+            classification: Some(classify_storage_origin(bundle, &origin)),
             evidence_summary: format!("IndexedDB data is present for origin {origin}"),
             confidence: None,
             cleanup_impact: CleanupImpact::ReviewRequired,
         })
         .collect()
+}
+
+fn classify_storage_origin(bundle: &RuleBundle, origin: &str) -> StorageClassification {
+    let host = origin
+        .split_once("://")
+        .and_then(|(_, remainder)| remainder.split('/').next())
+        .map(|authority| {
+            authority
+                .rsplit_once(':')
+                .and_then(|(host, port)| port.parse::<u16>().ok().map(|_| host).or(Some(authority)))
+                .unwrap_or(authority)
+        })
+        .unwrap_or(origin);
+
+    if let Some(classification) = classify_domain(bundle, host) {
+        return StorageClassification {
+            ownership: StorageOwnership::TrackerOwned,
+            provenance: StorageClassificationProvenance::TrackerRules,
+            confidence: Some(classification.confidence),
+            matched_rule_ids: classification.matched_rule_ids,
+        };
+    }
+
+    StorageClassification {
+        ownership: StorageOwnership::SiteOwned,
+        provenance: StorageClassificationProvenance::ChromiumLayout,
+        confidence: None,
+        matched_rule_ids: vec![],
+    }
 }
 
 fn indexeddb_origin_from_entry_name(entry_name: &str) -> Option<String> {
@@ -1161,6 +1235,12 @@ mod tests {
                 },
                 artifact_type: ArtifactType::Cookie,
                 site: Some("analytics.example".into()),
+                classification: Some(StorageClassification {
+                    ownership: StorageOwnership::TrackerOwned,
+                    provenance: StorageClassificationProvenance::TrackerRules,
+                    confidence: Some(Confidence::High),
+                    matched_rule_ids: vec!["finding-1-rule".into()],
+                }),
                 evidence_summary: "cookie host matched tracker rule".into(),
                 confidence: Some(Confidence::High),
                 cleanup_impact: CleanupImpact::MaySignOut,
@@ -1250,7 +1330,7 @@ mod tests {
         }
         std::fs::write(profile_path.join("History"), "fixture").unwrap();
 
-        let result = inventory_site_storage(&profile_at(&profile_path));
+        let result = inventory_site_storage(&profile_at(&profile_path), &bundle());
 
         let artifact_types = result
             .findings
@@ -1297,7 +1377,20 @@ mod tests {
         )
         .unwrap();
 
-        let result = inventory_site_storage(&profile_at(&profile_path));
+        let bundle = RuleBundle {
+            schema_version: 1,
+            bundle_version: "test".into(),
+            generated_at: "2026-06-01T00:00:00Z".into(),
+            sources: vec![],
+            rules: vec![rule_format::TrackerRule {
+                id: "analytics-rule".into(),
+                domain: "analytics.example".into(),
+                category: rule_format::TrackerCategory::Analytics,
+                confidence: Confidence::High,
+                source_id: "fixture".into(),
+            }],
+        };
+        let result = inventory_site_storage(&profile_at(&profile_path), &bundle);
 
         let finding = result
             .findings
@@ -1311,12 +1404,89 @@ mod tests {
     }
 
     #[test]
+    fn storage_inventory_classifies_indexeddb_origins_with_tracker_rules() {
+        let root = temp_directory("storage-indexeddb-tracker");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(
+            profile_path
+                .join("IndexedDB")
+                .join("https_analytics.example_0.indexeddb.leveldb"),
+        )
+        .unwrap();
+
+        let bundle = RuleBundle {
+            schema_version: 1,
+            bundle_version: "test".into(),
+            generated_at: "2026-06-01T00:00:00Z".into(),
+            sources: vec![],
+            rules: vec![rule_format::TrackerRule {
+                id: "analytics-rule".into(),
+                domain: "analytics.example".into(),
+                category: rule_format::TrackerCategory::Analytics,
+                confidence: Confidence::High,
+                source_id: "fixture".into(),
+            }],
+        };
+        let result = inventory_site_storage(&profile_at(&profile_path), &bundle);
+
+        let finding = result
+            .findings
+            .iter()
+            .find(|finding| finding.artifact_type == ArtifactType::IndexedDb)
+            .expect("indexeddb finding should exist");
+        let classification = finding
+            .classification
+            .as_ref()
+            .expect("indexeddb finding should be classified");
+        assert_eq!(classification.ownership, StorageOwnership::TrackerOwned);
+        assert_eq!(
+            classification.provenance,
+            StorageClassificationProvenance::TrackerRules
+        );
+        assert_eq!(classification.confidence, Some(Confidence::High));
+        assert_eq!(classification.matched_rule_ids, vec!["analytics-rule"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn storage_inventory_marks_unmatched_origins_as_site_owned() {
+        let root = temp_directory("storage-indexeddb-site-owned");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(
+            profile_path
+                .join("IndexedDB")
+                .join("https_site-owned.example_0.indexeddb.leveldb"),
+        )
+        .unwrap();
+
+        let result = inventory_site_storage(&profile_at(&profile_path), &bundle());
+
+        let finding = result
+            .findings
+            .iter()
+            .find(|finding| finding.artifact_type == ArtifactType::IndexedDb)
+            .expect("indexeddb finding should exist");
+        let classification = finding
+            .classification
+            .as_ref()
+            .expect("indexeddb finding should be classified");
+        assert_eq!(classification.ownership, StorageOwnership::SiteOwned);
+        assert_eq!(
+            classification.provenance,
+            StorageClassificationProvenance::ChromiumLayout
+        );
+        assert_eq!(classification.confidence, None);
+        assert!(classification.matched_rule_ids.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn storage_inventory_falls_back_when_indexeddb_origin_is_unreadable() {
         let root = temp_directory("storage-indexeddb-fallback");
         let profile_path = root.join("Default");
         std::fs::create_dir_all(profile_path.join("IndexedDB").join("unexpected-name")).unwrap();
 
-        let result = inventory_site_storage(&profile_at(&profile_path));
+        let result = inventory_site_storage(&profile_at(&profile_path), &bundle());
 
         assert_eq!(result.findings.len(), 1);
         assert_eq!(result.findings[0].artifact_type, ArtifactType::IndexedDb);
@@ -1324,6 +1494,15 @@ mod tests {
         assert_eq!(
             result.findings[0].id,
             "chrome|Default|indexed_db|indexed_db"
+        );
+        let classification = result.findings[0]
+            .classification
+            .as_ref()
+            .expect("fallback finding should be classified");
+        assert_eq!(classification.ownership, StorageOwnership::Ambiguous);
+        assert_eq!(
+            classification.provenance,
+            StorageClassificationProvenance::AmbiguousFallback
         );
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1484,6 +1663,12 @@ mod tests {
             profile,
             artifact_type: ArtifactType::Cookie,
             site: Some("analytics.example".into()),
+            classification: Some(StorageClassification {
+                ownership: StorageOwnership::TrackerOwned,
+                provenance: StorageClassificationProvenance::TrackerRules,
+                confidence: Some(Confidence::High),
+                matched_rule_ids: vec!["cookie:analytics.example-rule".into()],
+            }),
             evidence_summary: "cookie host matched tracker rule".into(),
             confidence: Some(Confidence::High),
             cleanup_impact: CleanupImpact::MaySignOut,
@@ -1520,6 +1705,12 @@ mod tests {
             profile: profile_at(std::path::Path::new(r"C:\Chrome\User Data\Default")),
             artifact_type: ArtifactType::Cookie,
             site: Some(host.into()),
+            classification: Some(StorageClassification {
+                ownership: StorageOwnership::TrackerOwned,
+                provenance: StorageClassificationProvenance::TrackerRules,
+                confidence,
+                matched_rule_ids: vec![id.into()],
+            }),
             evidence_summary: "cookie host found in browser profile".into(),
             confidence,
             cleanup_impact: impact,
@@ -1591,6 +1782,7 @@ mod tests {
                 profile,
                 artifact_type: ArtifactType::Cache,
                 site: None,
+                classification: None,
                 evidence_summary: "Cache data is present in the browser profile".into(),
                 confidence: None,
                 cleanup_impact: CleanupImpact::ReviewRequired,
