@@ -146,8 +146,17 @@ pub enum CleanupMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CleanupTarget {
-    CookieHost { profile_path: PathBuf, host: String },
-    ProfileArtifact { path: PathBuf },
+    CookieHost {
+        profile_path: PathBuf,
+        host: String,
+    },
+    IndexedDbOrigin {
+        profile_path: PathBuf,
+        origin: String,
+    },
+    ProfileArtifact {
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,7 +219,7 @@ pub fn plan_review_cleanup(
             .iter()
             .find(|finding| finding.id == *id)
             .ok_or_else(|| CleanupPlanError::FindingNotAvailable(id.clone()))?;
-        actions.push(cleanup_action_for(finding)?);
+        actions.push(cleanup_action_for_review(finding)?);
     }
     Ok(CleanupPlan {
         mode: CleanupMode::Review,
@@ -236,7 +245,7 @@ pub fn plan_balanced_cleanup(
         .filter(|finding| finding.confidence == Some(Confidence::High))
         .filter(|finding| finding.cleanup_impact != CleanupImpact::MaySignOut)
         .filter(|finding| !cookie_is_allowlisted(finding, allowlist))
-        .map(cleanup_action_for)
+        .map(cleanup_action_for_review)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(CleanupPlan {
         mode: CleanupMode::Balanced,
@@ -262,20 +271,57 @@ pub fn plan_aggressive_cleanup(
     }
     let actions = findings
         .iter()
-        .map(cleanup_action_for)
+        .map(cleanup_action_for_aggressive)
         .collect::<Result<Vec<_>, _>>()?;
+    let mut warnings = vec![
+        "Aggressive cleanup may sign the user out of websites.".into(),
+        "Aggressive cleanup may affect site functionality and saved preferences.".into(),
+    ];
+    if actions
+        .iter()
+        .any(|action| matches!(action.target, CleanupTarget::ProfileArtifact { .. }))
+    {
+        warnings.push(
+            "Aggressive cleanup may delete broad browser storage directories for local storage, cache, history, and service workers.".into(),
+        );
+    }
     Ok(CleanupPlan {
         mode: CleanupMode::Aggressive,
         estimated_action_count: actions.len(),
         actions,
-        warnings: vec![
-            "Aggressive cleanup may sign the user out of websites.".into(),
-            "Aggressive cleanup may affect site functionality and saved preferences.".into(),
-        ],
+        warnings,
     })
 }
 
-fn cleanup_action_for(finding: &Finding) -> Result<CleanupAction, CleanupPlanError> {
+fn cleanup_action_for_review(finding: &Finding) -> Result<CleanupAction, CleanupPlanError> {
+    let target = match finding.artifact_type {
+        ArtifactType::Cookie => CleanupTarget::CookieHost {
+            profile_path: finding.profile.profile_path.clone(),
+            host: finding
+                .site
+                .clone()
+                .ok_or_else(|| CleanupPlanError::FindingCannotBeCleaned(finding.id.clone()))?,
+        },
+        ArtifactType::IndexedDb if is_tracker_owned_storage(finding) => {
+            CleanupTarget::IndexedDbOrigin {
+                profile_path: finding.profile.profile_path.clone(),
+                origin: finding
+                    .site
+                    .clone()
+                    .ok_or_else(|| CleanupPlanError::FindingCannotBeCleaned(finding.id.clone()))?,
+            }
+        }
+        _ => return Err(CleanupPlanError::FindingCannotBeCleaned(finding.id.clone())),
+    };
+    Ok(CleanupAction {
+        id: finding.id.clone(),
+        artifact_type: finding.artifact_type,
+        target,
+        requires_browser_closed: true,
+    })
+}
+
+fn cleanup_action_for_aggressive(finding: &Finding) -> Result<CleanupAction, CleanupPlanError> {
     let target = if finding.artifact_type == ArtifactType::Cookie {
         CleanupTarget::CookieHost {
             profile_path: finding.profile.profile_path.clone(),
@@ -297,6 +343,16 @@ fn cleanup_action_for(finding: &Finding) -> Result<CleanupAction, CleanupPlanErr
         target,
         requires_browser_closed: true,
     })
+}
+
+fn is_tracker_owned_storage(finding: &Finding) -> bool {
+    matches!(
+        finding
+            .classification
+            .as_ref()
+            .map(|classification| classification.ownership),
+        Some(StorageOwnership::TrackerOwned)
+    )
 }
 
 fn profile_artifact_path(artifact_type: ArtifactType) -> Option<&'static str> {
@@ -407,6 +463,10 @@ pub fn execute_cleanup(plan: &CleanupPlan, skipped_ids: &[String]) -> CleanupExe
 fn execute_action(action: &CleanupAction) -> Result<(), String> {
     match &action.target {
         CleanupTarget::CookieHost { profile_path, host } => delete_cookie_host(profile_path, host),
+        CleanupTarget::IndexedDbOrigin {
+            profile_path,
+            origin,
+        } => delete_indexeddb_origin(profile_path, origin),
         CleanupTarget::ProfileArtifact { path } if path.is_dir() => {
             std::fs::remove_dir_all(path).map_err(|error| error.to_string())
         }
@@ -426,6 +486,31 @@ fn delete_cookie_host(profile_path: &std::path::Path, host: &str) -> Result<(), 
         )
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn delete_indexeddb_origin(profile_path: &std::path::Path, origin: &str) -> Result<(), String> {
+    let identifier = origin_to_identifier(origin).ok_or_else(|| {
+        format!("could not derive an IndexedDB storage identifier for '{origin}'")
+    })?;
+    let indexeddb_root = profile_path.join("IndexedDB");
+    for path in [
+        indexeddb_root.join(format!("{identifier}.indexeddb.leveldb")),
+        indexeddb_root.join(format!("{identifier}.indexeddb.blob")),
+    ] {
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path).map_err(|error| error.to_string())?;
+        } else if path.is_file() {
+            std::fs::remove_file(&path).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn origin_to_identifier(origin: &str) -> Option<String> {
+    let url = url::Url::parse(origin).ok()?;
+    let host = url.host_str()?;
+    let port = url.port_or_known_default()?;
+    Some(format!("{}_{}_{}", url.scheme(), host, port))
 }
 
 pub fn discover_chrome_profiles(root: &std::path::Path) -> DiscoveryResult {
@@ -1685,6 +1770,64 @@ mod tests {
     }
 
     #[test]
+    fn review_plan_uses_precise_indexeddb_origin_target_when_tracker_owned() {
+        let profile = profile_at(std::path::Path::new(r"C:\Chrome\User Data\Default"));
+        let findings = vec![Finding {
+            id: "indexeddb:https://analytics.example".into(),
+            profile,
+            artifact_type: ArtifactType::IndexedDb,
+            site: Some("https://analytics.example".into()),
+            classification: Some(StorageClassification {
+                ownership: StorageOwnership::TrackerOwned,
+                provenance: StorageClassificationProvenance::TrackerRules,
+                confidence: Some(Confidence::High),
+                matched_rule_ids: vec!["indexeddb-rule".into()],
+            }),
+            evidence_summary: "IndexedDB data is present for origin https://analytics.example"
+                .into(),
+            confidence: Some(Confidence::High),
+            cleanup_impact: CleanupImpact::ReviewRequired,
+        }];
+
+        let plan = plan_review_cleanup(&findings, &["indexeddb:https://analytics.example".into()])
+            .unwrap();
+
+        assert_eq!(plan.mode, CleanupMode::Review);
+        assert_eq!(plan.actions.len(), 1);
+        assert!(matches!(
+            plan.actions[0].target,
+            CleanupTarget::IndexedDbOrigin { .. }
+        ));
+    }
+
+    #[test]
+    fn review_plan_rejects_unsupported_storage_artifacts() {
+        let profile = profile_at(std::path::Path::new(r"C:\Chrome\User Data\Default"));
+        let findings = vec![Finding {
+            id: "artifact:Cache".into(),
+            profile,
+            artifact_type: ArtifactType::Cache,
+            site: None,
+            classification: Some(StorageClassification {
+                ownership: StorageOwnership::TrackerOwned,
+                provenance: StorageClassificationProvenance::TrackerRules,
+                confidence: None,
+                matched_rule_ids: vec!["cache-rule".into()],
+            }),
+            evidence_summary: "Cache data is present in the browser profile".into(),
+            confidence: None,
+            cleanup_impact: CleanupImpact::ReviewRequired,
+        }];
+
+        let error = plan_review_cleanup(&findings, &["artifact:Cache".into()]).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "selected finding 'artifact:Cache' cannot be cleaned safely"
+        );
+    }
+
+    #[test]
     fn review_plan_rejects_stale_selection() {
         let error = plan_review_cleanup(&[], &["missing".into()]).unwrap_err();
 
@@ -1798,6 +1941,11 @@ mod tests {
             plan.warnings
                 .iter()
                 .any(|warning| warning.contains("functionality"))
+        );
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|warning| warning.contains("broad browser storage directories"))
         );
     }
 

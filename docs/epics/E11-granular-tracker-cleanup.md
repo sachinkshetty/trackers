@@ -22,7 +22,7 @@ profile directories by default.
 - Classification records provenance and confidence.
 
 ### E11-S03 Add precise deletion strategies per artifact type
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Known tracker-owned origins can be cleaned without deleting unrelated site data where technically supported.
