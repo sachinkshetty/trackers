@@ -3764,6 +3764,7 @@ dependencies = [
  "rule-format",
  "scanner-core",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tempfile",

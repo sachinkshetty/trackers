@@ -12,6 +12,7 @@ use std::{
 };
 
 use crate::backend::DesktopBootstrap;
+use crate::audit::record_cleanup_audit;
 use crate::scan::ScanRunResult;
 use crate::state::AppState;
 
@@ -169,6 +170,16 @@ pub fn execute_cleanup(
 
     if matches!(status, CleanupExecutionStatus::Completed) {
         state.clear_cleanup_preview();
+    }
+
+    if let Some(scan) = state.latest_scan() {
+        let audit_result = CleanupExecuteResult {
+            execution: execution.clone(),
+            locked_action_ids: request.preview.locked_action_ids.clone(),
+            locked_profiles: request.preview.locked_profiles.clone(),
+            status: status.clone(),
+        };
+        let _ = record_cleanup_audit(&scan, &request.preview, &audit_result, &status);
     }
 
     Ok(CleanupExecuteResult {
@@ -473,6 +484,7 @@ mod tests {
             completed_profiles: 1,
             total_profiles: 1,
             cancelled: false,
+            rule_bundle_version: "embedded".into(),
             profiles: vec![ProfileScanSummary {
                 browser: "Chrome".into(),
                 profile_name: "Default".into(),

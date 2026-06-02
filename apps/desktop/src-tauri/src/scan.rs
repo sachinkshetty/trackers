@@ -46,6 +46,7 @@ pub struct ScanRunResult {
     pub completed_profiles: usize,
     pub total_profiles: usize,
     pub cancelled: bool,
+    pub rule_bundle_version: String,
     pub profiles: Vec<ProfileScanSummary>,
     pub findings: Vec<String>,
     pub warnings: Vec<String>,
@@ -81,6 +82,7 @@ where
     let total_profiles = request.discovery.profiles.len();
     let mut result = ScanRunResult {
         total_profiles,
+        rule_bundle_version: bundle.bundle_version.clone(),
         ..ScanRunResult::default()
     };
 
