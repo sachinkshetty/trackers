@@ -1,6 +1,9 @@
 use rule_format::{Confidence, RuleBundle, TrackerCategory};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -560,35 +563,124 @@ fn unique_suffix() -> u128 {
 }
 
 pub fn inventory_site_storage(profile: &BrowserProfile) -> ScanResult {
-    let artifacts = [
-        (ArtifactType::LocalStorage, "Local Storage", "local_storage"),
-        (ArtifactType::IndexedDb, "IndexedDB", "indexed_db"),
-        (ArtifactType::Cache, "Cache", "cache"),
-        (ArtifactType::History, "History", "history"),
-        (
-            ArtifactType::ServiceWorker,
-            "Service Worker",
-            "service_worker",
-        ),
-    ];
-    let findings = artifacts
-        .into_iter()
-        .filter_map(|(artifact_type, relative_path, key)| {
-            let path = profile.profile_path.join(relative_path);
-            path.exists().then(|| Finding {
-                id: finding_id(profile, artifact_type, key),
-                profile: profile.clone(),
-                artifact_type,
-                site: None,
-                evidence_summary: format!("{relative_path} data is present in the browser profile"),
-                confidence: None,
-                cleanup_impact: CleanupImpact::ReviewRequired,
-            })
-        })
-        .collect();
+    let mut findings = Vec::new();
+    findings.extend(profile_level_storage_finding(
+        profile,
+        ArtifactType::LocalStorage,
+        "Local Storage",
+        "local_storage",
+    ));
+    findings.extend(indexeddb_storage_findings(profile));
+    findings.extend(profile_level_storage_finding(
+        profile,
+        ArtifactType::Cache,
+        "Cache",
+        "cache",
+    ));
+    findings.extend(profile_level_storage_finding(
+        profile,
+        ArtifactType::History,
+        "History",
+        "history",
+    ));
+    findings.extend(profile_level_storage_finding(
+        profile,
+        ArtifactType::ServiceWorker,
+        "Service Worker",
+        "service_worker",
+    ));
     ScanResult {
         findings,
         warnings: vec![],
+    }
+}
+
+fn profile_level_storage_finding(
+    profile: &BrowserProfile,
+    artifact_type: ArtifactType,
+    relative_path: &str,
+    key: &str,
+) -> Vec<Finding> {
+    let path = profile.profile_path.join(relative_path);
+    if !path.exists() {
+        return vec![];
+    }
+
+    vec![Finding {
+        id: finding_id(profile, artifact_type, key),
+        profile: profile.clone(),
+        artifact_type,
+        site: None,
+        evidence_summary: format!("{relative_path} data is present in the browser profile"),
+        confidence: None,
+        cleanup_impact: CleanupImpact::ReviewRequired,
+    }]
+}
+
+fn indexeddb_storage_findings(profile: &BrowserProfile) -> Vec<Finding> {
+    let root = profile.profile_path.join("IndexedDB");
+    if !root.exists() {
+        return vec![];
+    }
+
+    let mut origins = BTreeSet::new();
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            if let Some(origin) =
+                indexeddb_origin_from_entry_name(&entry.file_name().to_string_lossy())
+            {
+                origins.insert(origin);
+            }
+        }
+    }
+
+    if origins.is_empty() {
+        return vec![Finding {
+            id: finding_id(profile, ArtifactType::IndexedDb, "indexed_db"),
+            profile: profile.clone(),
+            artifact_type: ArtifactType::IndexedDb,
+            site: None,
+            evidence_summary: "IndexedDB data is present in the browser profile".into(),
+            confidence: None,
+            cleanup_impact: CleanupImpact::ReviewRequired,
+        }];
+    }
+
+    origins
+        .into_iter()
+        .map(|origin| Finding {
+            id: finding_id(profile, ArtifactType::IndexedDb, &origin),
+            profile: profile.clone(),
+            artifact_type: ArtifactType::IndexedDb,
+            site: Some(origin.clone()),
+            evidence_summary: format!("IndexedDB data is present for origin {origin}"),
+            confidence: None,
+            cleanup_impact: CleanupImpact::ReviewRequired,
+        })
+        .collect()
+}
+
+fn indexeddb_origin_from_entry_name(entry_name: &str) -> Option<String> {
+    let serialized_origin = entry_name
+        .strip_suffix(".indexeddb.leveldb")
+        .or_else(|| entry_name.strip_suffix(".indexeddb.blob"))
+        .or_else(|| entry_name.strip_suffix(".leveldb"))
+        .or_else(|| entry_name.strip_suffix(".blob"))?;
+    origin_identifier_to_string(serialized_origin)
+}
+
+fn origin_identifier_to_string(identifier: &str) -> Option<String> {
+    if identifier == "null" || identifier == "__0" {
+        return None;
+    }
+
+    let (scheme, rest) = identifier.split_once('_')?;
+    let (host, port) = rest.rsplit_once('_')?;
+    let port = port.parse::<u16>().ok()?;
+    if port == 0 {
+        Some(format!("{scheme}://{host}"))
+    } else {
+        Some(format!("{scheme}://{host}:{port}"))
     }
 }
 
@@ -1190,6 +1282,48 @@ mod tests {
                 .findings
                 .iter()
                 .all(|finding| finding.cleanup_impact == CleanupImpact::ReviewRequired)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn storage_inventory_reports_indexeddb_origin_when_available() {
+        let root = temp_directory("storage-indexeddb-origin");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(
+            profile_path
+                .join("IndexedDB")
+                .join("https_example.test_0.indexeddb.leveldb"),
+        )
+        .unwrap();
+
+        let result = inventory_site_storage(&profile_at(&profile_path));
+
+        let finding = result
+            .findings
+            .iter()
+            .find(|finding| finding.artifact_type == ArtifactType::IndexedDb)
+            .expect("indexeddb finding should exist");
+        assert_eq!(finding.site.as_deref(), Some("https://example.test"));
+        assert_eq!(finding.id, "chrome|Default|indexed_db|https://example.test");
+        assert!(finding.evidence_summary.contains("origin"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn storage_inventory_falls_back_when_indexeddb_origin_is_unreadable() {
+        let root = temp_directory("storage-indexeddb-fallback");
+        let profile_path = root.join("Default");
+        std::fs::create_dir_all(profile_path.join("IndexedDB").join("unexpected-name")).unwrap();
+
+        let result = inventory_site_storage(&profile_at(&profile_path));
+
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].artifact_type, ArtifactType::IndexedDb);
+        assert_eq!(result.findings[0].site, None);
+        assert_eq!(
+            result.findings[0].id,
+            "chrome|Default|indexed_db|indexed_db"
         );
         std::fs::remove_dir_all(root).unwrap();
     }
