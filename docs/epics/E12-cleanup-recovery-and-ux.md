@@ -6,7 +6,7 @@ recovery path for destructive changes.
 ## Stories
 
 ### E12-S01 Explain artifact impact before cleanup
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Preview explains the likely impact of Cookies, Cache, Local Storage, IndexedDB, Service Workers, and History.
