@@ -77,6 +77,10 @@ app.innerHTML = `
               </select>
             </label>
             <label class="confirm-toggle">
+              <input type="checkbox" data-include-general-cleanup />
+              Include general browser data
+            </label>
+            <label class="confirm-toggle">
               <input type="checkbox" data-aggressive-confirm />
               Confirm aggressive cleanup
             </label>
@@ -138,6 +142,7 @@ const previewCleanupButton = app.querySelector('[data-preview-cleanup]');
 const executeCleanupButton = app.querySelector('[data-execute-cleanup]');
 const aggressiveConfirm = app.querySelector('[data-aggressive-confirm]');
 const autoCloseConfirm = app.querySelector('[data-auto-close-confirm]');
+const includeGeneralCleanup = app.querySelector('[data-include-general-cleanup]');
 const cleanupModeButtons = app.querySelectorAll('[data-cleanup-mode]');
 const cleanupBrowser = app.querySelector('[data-cleanup-browser]');
 const lockResolution = app.querySelector('[data-lock-resolution]');
@@ -156,6 +161,7 @@ const state = {
   cleanupMode: 'review',
   cleanupBrowser: 'all',
   cleanupLockResolution: 'retryAfterManualClose',
+  includeGeneralCleanup: false,
   aggressiveConfirmed: false,
   automaticCloseConfirmed: false,
   cleanupPreview: null,
@@ -323,6 +329,10 @@ function renderCleanupPreview() {
   const warnings = state.cleanupPreview.warnings ?? [];
   const requiresConfirmation =
     state.cleanupPreview.requiresConfirmation ?? state.cleanupPreview.requires_confirmation ?? false;
+  const findings = cleanablePreviewFindings(state.scanResult);
+  const trackerFindings = findings.filter((finding) => finding.trackerOwned);
+  const generalFindings = findings.filter((finding) => !finding.trackerOwned);
+  const selectedFindings = findings.filter((finding) => finding.trackerOwned || state.includeGeneralCleanup);
   const actionCount = plan.actions?.length ?? 0;
   const browserLabel = state.cleanupBrowser === 'all'
     ? 'all browsers'
@@ -332,13 +342,55 @@ function renderCleanupPreview() {
     skipLocked: 'Skip locked actions',
     requestAutomaticClose: 'Request automatic close',
   }[state.cleanupLockResolution];
-  cleanupSummary.textContent = `${plan.mode} mode · ${browserLabel} · ${actionCount} action(s) · ${lockedActionIds.length} locked · ${lockLabel}`;
+  cleanupSummary.textContent = `${plan.mode} mode · ${browserLabel} · ${selectedFindings.length} selected · ${trackerFindings.length} tracker item(s) · ${generalFindings.length} general item(s) · ${lockedActionIds.length} locked · ${lockLabel}`;
 
   cleanupPreviewContainer.innerHTML = `
     <div class="row">
       <strong>Warnings</strong>
       <div class="stack nested">
         ${warnings.length === 0 ? '<p class="empty">No cleanup warnings.</p>' : warnings.map((warning) => `<p class="row warning">${warning}</p>`).join('')}
+      </div>
+    </div>
+    <div class="row">
+      <strong>Tracker data</strong>
+      <p class="subtle">Known tracker-owned cookies and storage are selected by default.</p>
+      <div class="stack nested">
+        ${trackerFindings.length === 0
+          ? '<p class="empty">No tracker-owned cleanup candidates in this scan.</p>'
+          : trackerFindings
+              .map(
+                (finding) => `
+                  <div class="row artifact">
+                    <div class="artifact-head">
+                      <strong>${finding.artifactType}</strong>
+                      <span>${finding.site ?? 'tracker-owned'}</span>
+                    </div>
+                    <p class="artifact-detail">${finding.id}</p>
+                  </div>
+                `,
+              )
+              .join('')}
+      </div>
+    </div>
+    <div class="row">
+      <strong>General browser data</strong>
+      <p class="subtle">${generalFindings.length === 0 ? 'No general browser data was identified for this scan.' : 'General cache, history, and ambiguous site data remain unselected unless you explicitly include them.'}</p>
+      <div class="stack nested">
+        ${generalFindings.length === 0
+          ? '<p class="empty">No general browser items to review.</p>'
+          : generalFindings
+              .map(
+                (finding) => `
+                  <div class="row artifact">
+                    <div class="artifact-head">
+                      <strong>${finding.artifactType}</strong>
+                      <span>${finding.site ?? 'browser data'}</span>
+                    </div>
+                    <p class="artifact-detail">${finding.id}</p>
+                  </div>
+                `,
+              )
+              .join('')}
       </div>
     </div>
     <div class="row">
@@ -370,6 +422,9 @@ function renderCleanupPreview() {
       ${state.cleanupLockResolution === 'requestAutomaticClose'
         ? `<p class="row warning">${autoCloseConfirm.checked ? 'Automatic browser closure will be requested on cleanup.' : 'Check confirmation to enable browser closure during cleanup.'}</p>`
         : ''}
+      ${state.includeGeneralCleanup
+        ? '<p class="row warning">General browser data is included in this cleanup request.</p>'
+        : '<p class="subtle">General browser data remains excluded until you explicitly include it.</p>'}
     </div>
     <div class="row">
       <strong>Planned actions</strong>
@@ -422,6 +477,12 @@ function renderSettings() {
 function syncCleanupControls() {
   aggressiveConfirm.disabled = state.scanRunning || state.cleanupMode !== 'aggressive';
   autoCloseConfirm.disabled = state.scanRunning || state.cleanupLockResolution !== 'requestAutomaticClose';
+  const generalFindingCount = cleanablePreviewFindings(state.scanResult).filter(
+    (finding) => !finding.trackerOwned,
+  ).length;
+  includeGeneralCleanup.disabled = state.scanRunning || !state.scanResult || generalFindingCount === 0;
+  includeGeneralCleanup.checked = state.includeGeneralCleanup && !includeGeneralCleanup.disabled;
+  state.includeGeneralCleanup = includeGeneralCleanup.checked;
   previewCleanupButton.textContent = state.cleanupPreviewRunning
     ? 'Generating...'
     : 'Preview cleanup';
@@ -488,6 +549,10 @@ function cleanableFindingIds(scanResult) {
   return cleanablePreviewFindings(scanResult).map((finding) => finding.id);
 }
 
+function isTrackerOwnedFinding(finding) {
+  return finding.classification?.ownership === 'tracker_owned';
+}
+
 function cleanablePreviewFindings(scanResult) {
   const cleanableArtifactTypes = new Set([
     'cookie',
@@ -515,12 +580,15 @@ function cleanablePreviewFindings(scanResult) {
         site: finding.site,
         confidence: finding.confidence,
         cleanupImpact: finding.cleanup_impact,
+        trackerOwned: isTrackerOwnedFinding(finding),
       })),
     );
 }
 
 function selectedCleanupFindingIds(scanResult) {
-  return cleanableFindingIds(scanResult);
+  return cleanablePreviewFindings(scanResult)
+    .filter((finding) => finding.trackerOwned || state.includeGeneralCleanup)
+    .map((finding) => finding.id);
 }
 
 function flattenWarnings(scanResult) {
@@ -539,6 +607,7 @@ function registerListeners() {
   void listen('scan-complete', (event) => {
     state.scanResult = event.payload;
     state.warnings = flattenWarnings(event.payload);
+    state.includeGeneralCleanup = false;
     renderWarnings();
     renderResults();
     state.cleanupPreview = null;
@@ -588,6 +657,7 @@ async function startScan() {
   state.scanResult = null;
   state.cleanupPreview = null;
   state.cleanupExecution = null;
+  state.includeGeneralCleanup = false;
   state.warnings = browserWarnings(state.discovery).map((warning) => warning.message);
   renderProgress();
   renderWarnings();
@@ -758,6 +828,13 @@ aggressiveConfirm.addEventListener('change', () => {
 
 cleanupBrowser.addEventListener('change', () => {
   setCleanupBrowser(cleanupBrowser.value);
+});
+
+includeGeneralCleanup.addEventListener('change', () => {
+  state.includeGeneralCleanup = includeGeneralCleanup.checked;
+  state.cleanupPreview = null;
+  renderCleanupPreview();
+  syncCleanupControls();
 });
 
 lockResolution.addEventListener('change', () => {
