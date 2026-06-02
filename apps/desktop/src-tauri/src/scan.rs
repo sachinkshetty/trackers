@@ -1,7 +1,7 @@
 use rule_format::{Confidence, RuleBundle};
 use scanner_core::{
     ArtifactType, BrowserProfile, CleanupImpact, DiscoveryResult, Finding, PrivacySettingsResult,
-    ScanResult, SettingStatus, inspect_privacy_settings, inventory_extensions,
+    ScanResult, SettingStatus, finding_id, inspect_privacy_settings, inventory_extensions,
     inventory_site_storage, scan_cookies,
 };
 use serde::{Deserialize, Serialize};
@@ -160,7 +160,7 @@ fn extension_findings(
     extensions
         .into_iter()
         .map(|extension| Finding {
-            id: format!("extension:{}", extension.id),
+            id: finding_id(profile, ArtifactType::Extension, &extension.id),
             profile: profile.clone(),
             artifact_type: ArtifactType::Extension,
             site: None,
@@ -179,7 +179,7 @@ fn privacy_findings(profile: &BrowserProfile, result: &PrivacySettingsResult) ->
         .settings
         .iter()
         .map(|setting| Finding {
-            id: format!("setting:{}", setting.key),
+            id: finding_id(profile, ArtifactType::Setting, &setting.key),
             profile: profile.clone(),
             artifact_type: ArtifactType::Setting,
             site: None,
@@ -198,19 +198,8 @@ fn privacy_findings(profile: &BrowserProfile, result: &PrivacySettingsResult) ->
 }
 
 pub fn embedded_rule_bundle() -> RuleBundle {
-    RuleBundle {
-        schema_version: 1,
-        bundle_version: "embedded-starter".into(),
-        generated_at: "2026-06-01T00:00:00Z".into(),
-        sources: vec![rule_format::RuleSource {
-            id: "supplemental".into(),
-            name: "Browser Tracker Cleaner supplemental rules".into(),
-            url: "https://github.com/sachinkshetty/trackers/tree/main/rules/supplemental".into(),
-            license: "MIT OR Apache-2.0".into(),
-            attribution: "Browser Tracker Cleaner contributors".into(),
-        }],
-        rules: vec![],
-    }
+    RuleBundle::from_json(include_str!("../rules/easyprivacy.bundle.json"))
+        .expect("embedded EasyPrivacy rule bundle must be valid")
 }
 
 #[cfg(test)]
@@ -276,5 +265,54 @@ mod tests {
         assert!(result.cancelled);
         assert_eq!(result.completed_profiles, 1);
         assert_eq!(result.total_profiles, 2);
+    }
+
+    #[test]
+    fn embedded_rule_bundle_loads_generated_easyprivacy_rules() {
+        let bundle = embedded_rule_bundle();
+
+        assert_eq!(bundle.sources[0].id, "easyprivacy");
+        assert!(!bundle.rules.is_empty());
+    }
+
+    #[test]
+    fn finding_ids_include_browser_profile_artifact_and_key() {
+        let profile = BrowserProfile {
+            browser: BrowserFamily::Edge,
+            installation_root: PathBuf::from(r"C:\Edge\User Data"),
+            profile_name: "Profile 2".into(),
+            profile_path: PathBuf::from(r"C:\Edge\User Data\Profile 2"),
+        };
+        let extensions = vec![scanner_core::ExtensionInventoryItem {
+            id: "abcdefghijklmnopabcdefghijklmnop".into(),
+            display_name: Some("Fixture Extension".into()),
+            enabled: true,
+            evidence_source: PathBuf::from(r"C:\Edge\User Data\Profile 2\manifest.json"),
+        }];
+        let privacy = PrivacySettingsResult {
+            settings: vec![scanner_core::PrivacySetting {
+                key: "homepage".into(),
+                status: SettingStatus::Supported {
+                    value: "edge://newtab".into(),
+                },
+                evidence_source: PathBuf::from(r"C:\Edge\User Data\Profile 2\Preferences"),
+            }],
+            warnings: vec![],
+        };
+
+        let extension_ids = extension_findings(&profile, extensions)
+            .into_iter()
+            .map(|finding| finding.id)
+            .collect::<Vec<_>>();
+        let privacy_ids = privacy_findings(&profile, &privacy)
+            .into_iter()
+            .map(|finding| finding.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            extension_ids,
+            vec!["edge|Profile 2|extension|abcdefghijklmnopabcdefghijklmnop"]
+        );
+        assert_eq!(privacy_ids, vec!["edge|Profile 2|setting|homepage"]);
     }
 }

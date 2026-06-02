@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Browser Tracker Cleaner</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 16px;
+        min-width: 280px;
+      }
+
+      h1 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+
+      strong {
+        font-size: 32px;
+      }
+
+      ul {
+        padding-left: 20px;
+      }
+
+      button {
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Development Tracker Counter</h1>
+    <strong id="total">0</strong>
+    <p>tracker requests blocked since the counter was cleared</p>
+    <h2>Top sites</h2>
+    <ul id="sites"></ul>
+    <button id="clear" type="button">Clear count</button>
+    <script src="dist/popup.js" type="module"></script>
+  </body>
+</html>

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildBlockedCountSummary,
   incrementBlockedCount,
+  recordDebugRuleMatch,
   summarizeSiteCounts,
 } from "../dist/counts.js";
 
@@ -25,5 +27,34 @@ test("unknown site has an empty popup summary", () => {
   assert.deepEqual(summarizeSiteCounts({}, "news.example"), {
     total: 0,
     categories: {},
+  });
+});
+
+test("debug rule matches increment total and initiator site analytics counts", () => {
+  const counts = recordDebugRuleMatch({}, {
+    initiator: "https://news.example",
+    url: "https://analytics.example/pixel.gif",
+  });
+
+  assert.deepEqual(buildBlockedCountSummary(counts), {
+    total: 1,
+    sites: [
+      {
+        site: "news.example",
+        total: 1,
+        categories: { analytics: 1 },
+      },
+    ],
+  });
+});
+
+test("debug rule matches without an initiator still increment the total", () => {
+  const counts = recordDebugRuleMatch({}, {
+    url: "https://analytics.example/pixel.gif",
+  });
+
+  assert.deepEqual(buildBlockedCountSummary(counts), {
+    total: 1,
+    sites: [],
   });
 });

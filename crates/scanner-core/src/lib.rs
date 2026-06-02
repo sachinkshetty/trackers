@@ -2,11 +2,41 @@ use rule_format::{Confidence, RuleBundle, TrackerCategory};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserFamily {
     Chrome,
     Edge,
+}
+
+pub fn finding_id(profile: &BrowserProfile, artifact_type: ArtifactType, key: &str) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        browser_identity(profile.browser),
+        profile.profile_name,
+        artifact_identity(artifact_type),
+        key
+    )
+}
+
+fn browser_identity(browser: BrowserFamily) -> &'static str {
+    match browser {
+        BrowserFamily::Chrome => "chrome",
+        BrowserFamily::Edge => "edge",
+    }
+}
+
+fn artifact_identity(artifact_type: ArtifactType) -> &'static str {
+    match artifact_type {
+        ArtifactType::Cookie => "cookie",
+        ArtifactType::LocalStorage => "local_storage",
+        ArtifactType::IndexedDb => "indexed_db",
+        ArtifactType::Cache => "cache",
+        ArtifactType::History => "history",
+        ArtifactType::ServiceWorker => "service_worker",
+        ArtifactType::Extension => "extension",
+        ArtifactType::Setting => "setting",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -491,7 +521,7 @@ fn read_copied_cookies(
         let site = host?.trim_start_matches('.').to_ascii_lowercase();
         let classification = classify_domain(bundle, &site);
         findings.push(Finding {
-            id: format!("cookie:{site}"),
+            id: finding_id(profile, ArtifactType::Cookie, &site),
             profile: profile.clone(),
             artifact_type: ArtifactType::Cookie,
             site: Some(site),
@@ -531,18 +561,22 @@ fn unique_suffix() -> u128 {
 
 pub fn inventory_site_storage(profile: &BrowserProfile) -> ScanResult {
     let artifacts = [
-        (ArtifactType::LocalStorage, "Local Storage"),
-        (ArtifactType::IndexedDb, "IndexedDB"),
-        (ArtifactType::Cache, "Cache"),
-        (ArtifactType::History, "History"),
-        (ArtifactType::ServiceWorker, "Service Worker"),
+        (ArtifactType::LocalStorage, "Local Storage", "local_storage"),
+        (ArtifactType::IndexedDb, "IndexedDB", "indexed_db"),
+        (ArtifactType::Cache, "Cache", "cache"),
+        (ArtifactType::History, "History", "history"),
+        (
+            ArtifactType::ServiceWorker,
+            "Service Worker",
+            "service_worker",
+        ),
     ];
     let findings = artifacts
         .into_iter()
-        .filter_map(|(artifact_type, relative_path)| {
+        .filter_map(|(artifact_type, relative_path, key)| {
             let path = profile.profile_path.join(relative_path);
             path.exists().then(|| Finding {
-                id: format!("artifact:{relative_path}"),
+                id: finding_id(profile, artifact_type, key),
                 profile: profile.clone(),
                 artifact_type,
                 site: None,
@@ -1085,6 +1119,10 @@ mod tests {
             result.findings[0].site.as_deref(),
             Some("analytics.example.test")
         );
+        assert_eq!(
+            result.findings[0].id,
+            "chrome|Default|cookie|analytics.example.test"
+        );
         assert_eq!(result.findings[0].confidence, Some(Confidence::High));
         assert!(!json.contains("secret-token"));
         assert!(!json.contains("session"));
@@ -1136,6 +1174,10 @@ mod tests {
                 ArtifactType::History,
                 ArtifactType::ServiceWorker,
             ]
+        );
+        assert_eq!(
+            result.findings[0].id,
+            "chrome|Default|local_storage|local_storage"
         );
         assert!(
             result

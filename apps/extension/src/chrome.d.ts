@@ -11,4 +11,17 @@ declare namespace chrome {
       function set(items: Record<string, unknown>): Promise<void>;
     }
   }
+
+  namespace declarativeNetRequest {
+    interface MatchedRuleInfoDebug {
+      request: {
+        initiator?: string;
+        url: string;
+      };
+    }
+
+    const onRuleMatchedDebug: {
+      addListener(callback: (info: MatchedRuleInfoDebug) => void): void;
+    };
+  }
 }

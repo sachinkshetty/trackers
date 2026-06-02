@@ -3,5 +3,13 @@
   "identifier": "main-capability",
   "description": "Capability for the main desktop window",
   "windows": ["main"],
-  "permissions": ["core:default", "allow-discover-profiles"]
+  "permissions": [
+    "core:default",
+    "allow-discover-profiles",
+    "allow-start-scan",
+    "allow-cancel-scan",
+    "allow-preview-cleanup",
+    "allow-execute-cleanup",
+    "allow-settings-snapshot"
+  ]
 }

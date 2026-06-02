@@ -10,6 +10,7 @@ for (const browser of ["chrome", "edge"]) {
   mkdirSync(join(output, "dist"), { recursive: true });
   mkdirSync(join(output, "rules"), { recursive: true });
   cpSync(join(root, "manifest.json"), join(output, "manifest.json"));
+  cpSync(join(root, "popup.html"), join(output, "popup.html"));
   cpSync(join(root, "dist"), join(output, "dist"), { recursive: true });
   cpSync(join(root, "rules"), join(output, "rules"), { recursive: true });
 }
