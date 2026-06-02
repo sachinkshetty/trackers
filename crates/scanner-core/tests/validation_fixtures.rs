@@ -170,8 +170,10 @@ fn disposable_fixtures_stay_under_temp_and_cover_supported_artifacts() {
         &chrome_default.browser_profile(BrowserFamily::Chrome),
         &tracker_bundle(),
     );
-    let storage_scan =
-        inventory_site_storage(&chrome_default.browser_profile(BrowserFamily::Chrome));
+    let storage_scan = inventory_site_storage(
+        &chrome_default.browser_profile(BrowserFamily::Chrome),
+        &tracker_bundle(),
+    );
     let extension_scan = inventory_extensions(&edge_default.browser_profile(BrowserFamily::Edge));
 
     assert_eq!(cookie_scan.findings.len(), 1);

@@ -138,7 +138,7 @@ pub fn scan_profile(profile: &BrowserProfile, bundle: &RuleBundle) -> ScanResult
     findings.extend(cookie_scan.findings);
     warnings.extend(cookie_scan.warnings);
 
-    let storage_scan = inventory_site_storage(profile);
+    let storage_scan = inventory_site_storage(profile, bundle);
     findings.extend(storage_scan.findings);
     warnings.extend(storage_scan.warnings);
 
@@ -164,6 +164,7 @@ fn extension_findings(
             profile: profile.clone(),
             artifact_type: ArtifactType::Extension,
             site: None,
+            classification: None,
             evidence_summary: match extension.display_name {
                 Some(display_name) => format!("extension '{display_name}' is installed"),
                 None => format!("extension '{}' is installed", extension.id),
@@ -183,6 +184,7 @@ fn privacy_findings(profile: &BrowserProfile, result: &PrivacySettingsResult) ->
             profile: profile.clone(),
             artifact_type: ArtifactType::Setting,
             site: None,
+            classification: None,
             evidence_summary: match &setting.status {
                 SettingStatus::Supported { value } => {
                     format!("privacy setting '{}' is exposed as {value}", setting.key)

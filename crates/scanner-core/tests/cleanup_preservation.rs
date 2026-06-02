@@ -39,6 +39,7 @@ fn cookie_finding(
         profile: browser_profile(root, profile_name),
         artifact_type: ArtifactType::Cookie,
         site: Some(site.into()),
+        classification: None,
         evidence_summary: "cookie host found in browser profile".into(),
         confidence,
         cleanup_impact: impact,
