@@ -38,7 +38,7 @@ profile directories by default.
 - Classification fixtures cover tracker cookies, authentication cookies, and shared-domain edge cases.
 
 ### E11-S05 Separate tracker cleanup from general browser cleanup
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - The UI presents known tracker data separately from general cache, history, and ambiguous site data.
