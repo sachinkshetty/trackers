@@ -30,7 +30,7 @@ profile directories by default.
 - Unsupported precise deletion paths are reported rather than guessed.
 
 ### E11-S04 Improve Balanced-mode cookie selection
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Known tracker-only cookie domains can be selected automatically.
