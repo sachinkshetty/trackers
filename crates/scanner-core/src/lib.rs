@@ -509,7 +509,7 @@ fn delete_indexeddb_origin(profile_path: &std::path::Path, origin: &str) -> Resu
 fn origin_to_identifier(origin: &str) -> Option<String> {
     let url = url::Url::parse(origin).ok()?;
     let host = url.host_str()?;
-    let port = url.port_or_known_default()?;
+    let port = url.port().unwrap_or(0);
     Some(format!("{}_{}_{}", url.scheme(), host, port))
 }
 
