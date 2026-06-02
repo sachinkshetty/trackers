@@ -289,6 +289,23 @@ impl ResourceLockProbe for FilesystemResourceLockProbe {
                 let cookies = profile_path.join("Network").join("Cookies");
                 path_is_locked(&cookies)
             }
+            CleanupTarget::IndexedDbOrigin {
+                profile_path,
+                origin,
+            } => {
+                let identifier = origin_to_identifier(origin);
+                if let Some(identifier) = identifier {
+                    let leveldb = profile_path
+                        .join("IndexedDB")
+                        .join(format!("{identifier}.indexeddb.leveldb"));
+                    let blob = profile_path
+                        .join("IndexedDB")
+                        .join(format!("{identifier}.indexeddb.blob"));
+                    path_is_locked(&leveldb) || path_is_locked(&blob)
+                } else {
+                    false
+                }
+            }
             CleanupTarget::ProfileArtifact { path } => path_contains_locked_entry(path),
         }
     }
@@ -403,6 +420,16 @@ fn path_is_locked(path: &Path) -> bool {
 #[cfg(not(windows))]
 fn path_is_locked(_path: &Path) -> bool {
     false
+}
+
+fn origin_to_identifier(origin: &str) -> Option<String> {
+    let (scheme, rest) = origin.split_once("://")?;
+    let authority = rest.split('/').next()?;
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if port.parse::<u16>().is_ok() => (host, port.parse::<u16>().ok()?),
+        _ => (authority, 0),
+    };
+    Some(format!("{scheme}_{host}_{port}"))
 }
 
 #[cfg(test)]
