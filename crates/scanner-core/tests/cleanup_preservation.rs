@@ -99,6 +99,26 @@ fn balanced_cleanup_preserves_ambiguous_and_allowlisted_artifacts() {
 }
 
 #[test]
+fn balanced_cleanup_selects_tracker_cookie_on_shared_domain() {
+    let root = temp_directory("cleanup-shared-domain");
+    let findings = vec![cookie_finding(
+        &root,
+        "Default",
+        "cdn.analytics.example",
+        Some(Confidence::High),
+        CleanupImpact::MayRemovePreferences,
+    )];
+
+    let plan = plan_balanced_cleanup(&findings, &[]).unwrap();
+
+    assert_eq!(plan.mode, CleanupMode::Balanced);
+    assert_eq!(plan.actions.len(), 1);
+    assert_eq!(plan.actions[0].id, "Default:cdn.analytics.example");
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn aggressive_cleanup_requires_explicit_confirmation() {
     let root = temp_directory("cleanup-aggressive");
     let findings = vec![cookie_finding(
