@@ -13,11 +13,17 @@ const app = document.querySelector('#app');
 app.innerHTML = `
   <main class="shell">
     <section class="hero">
-      <p class="eyebrow">Desktop dashboard</p>
-      <h1>Trackers</h1>
-      <p class="lede">
-        Discover browser profiles, run a read-only scan, and watch per-profile progress live.
-      </p>
+      <div>
+        <p class="eyebrow">Privacy workspace</p>
+        <h1>Trackers</h1>
+        <p class="lede">
+          Scan browser profiles, review tracker findings, and clean only after a verified preview.
+        </p>
+      </div>
+      <div class="hero-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span data-hero-status>Local protection</span>
+      </div>
     </section>
 
     <section class="panel">
@@ -30,7 +36,34 @@ app.innerHTML = `
         </div>
       </div>
 
-      <div class="grid">
+      <nav class="view-tabs" aria-label="Workspace sections">
+        <button class="view-tab active" data-view-tab="overview">Overview</button>
+        <button class="view-tab" data-view-tab="findings">Findings</button>
+        <button class="view-tab" data-view-tab="cleanup">Cleanup</button>
+        <button class="view-tab" data-view-tab="maintenance">Maintenance</button>
+        <button class="view-tab" data-view-tab="recovery">Recovery</button>
+      </nav>
+
+      <div class="workspace">
+        <section class="view active" data-view="overview">
+          <div class="overview-grid">
+            <article class="metric-card">
+              <span>Profiles</span>
+              <strong data-profile-count>0</strong>
+              <p>Chrome and Edge profiles discovered locally.</p>
+            </article>
+            <article class="metric-card">
+              <span>Findings</span>
+              <strong data-finding-count>0</strong>
+              <p>Tracker and review-only artifacts from the latest scan.</p>
+            </article>
+            <article class="metric-card">
+              <span>Warnings</span>
+              <strong data-warning-count>0</strong>
+              <p>Discovery and scan issues that need attention.</p>
+            </article>
+          </div>
+          <div class="grid compact-grid">
         <article class="card">
           <h2>Profiles</h2>
           <div class="stack" data-profiles></div>
@@ -45,7 +78,10 @@ app.innerHTML = `
           <h2>Warnings</h2>
           <div class="stack" data-warnings></div>
         </article>
+          </div>
+        </section>
 
+        <section class="view" data-view="findings">
         <article class="card results-card">
           <div class="results-header">
             <h2>Findings</h2>
@@ -53,7 +89,9 @@ app.innerHTML = `
           </div>
           <div class="stack" data-results></div>
         </article>
+        </section>
 
+        <section class="view" data-view="cleanup">
         <article class="card results-card">
           <div class="results-header">
             <h2>Cleanup preview</h2>
@@ -102,7 +140,10 @@ app.innerHTML = `
           </div>
           <div class="stack" data-cleanup-preview></div>
         </article>
+        </section>
 
+        <section class="view" data-view="maintenance">
+          <div class="grid compact-grid">
         <article class="card">
           <div class="results-header">
             <h2>Settings and privacy</h2>
@@ -193,7 +234,11 @@ app.innerHTML = `
             </p>
           </div>
         </article>
+          </div>
+        </section>
 
+        <section class="view" data-view="recovery">
+          <div class="grid compact-grid">
         <article class="card results-card">
           <div class="results-header">
             <h2>Cleanup history</h2>
@@ -216,12 +261,20 @@ app.innerHTML = `
           </div>
           <div class="stack" data-restore-preview></div>
         </article>
+          </div>
+        </section>
       </div>
     </section>
   </main>
 `;
 
 const status = app.querySelector('[data-status]');
+const heroStatus = app.querySelector('[data-hero-status]');
+const navButtons = app.querySelectorAll('[data-view-tab]');
+const views = app.querySelectorAll('[data-view]');
+const profileCountMetric = app.querySelector('[data-profile-count]');
+const findingCountMetric = app.querySelector('[data-finding-count]');
+const warningCountMetric = app.querySelector('[data-warning-count]');
 const expertToggle = app.querySelector('[data-expert-toggle]');
 const startButton = app.querySelector('[data-start]');
 const cancelButton = app.querySelector('[data-cancel]');
@@ -302,6 +355,7 @@ const state = {
   refresh: null,
   refreshLoading: false,
   refreshRunning: false,
+  activeView: 'overview',
 };
 
 function browserProfiles(snapshot) {
@@ -326,12 +380,14 @@ function renderList(container, items, emptyLabel) {
 function renderProfiles() {
   if (!state.discovery) {
     renderList(profilesContainer, [], 'Waiting for discovery.');
+    profileCountMetric.textContent = '0';
     return;
   }
 
   const items = browserProfiles(state.discovery).map(
     (profile) => `${profile.browser} · ${profile.profile_name}`,
   );
+  profileCountMetric.textContent = String(items.length);
   renderList(profilesContainer, items, 'No profiles found.');
 }
 
@@ -344,12 +400,14 @@ function renderProgress() {
 }
 
 function renderWarnings() {
+  warningCountMetric.textContent = String(state.warnings.length);
   renderList(warningsContainer, state.warnings, 'No warnings yet.');
 }
 
 function renderResults() {
   if (!state.scanResult) {
     resultsSummary.textContent = 'No scan results yet.';
+    findingCountMetric.textContent = '0';
     resultsContainer.innerHTML = '<p class="empty">Run a scan to inspect layered findings.</p>';
     return;
   }
@@ -378,6 +436,7 @@ function renderResults() {
   );
 
   resultsSummary.textContent = `${browserCount} browser(s), ${profileCount} profile(s), ${findingCount} finding(s).`;
+  findingCountMetric.textContent = String(findingCount);
   resultsContainer.innerHTML = model.browsers
     .map(
       (browser) => `
@@ -973,6 +1032,17 @@ function setRunning(running) {
 
 function setStatus(message) {
   status.textContent = message;
+  heroStatus.textContent = state.scanRunning ? 'Scan running' : 'Local protection';
+}
+
+function setActiveView(viewName) {
+  state.activeView = viewName;
+  navButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.viewTab === viewName);
+  });
+  views.forEach((view) => {
+    view.classList.toggle('active', view.dataset.view === viewName);
+  });
 }
 
 function combineDiscovery(snapshot) {
@@ -1471,6 +1541,12 @@ cleanupModeButtons.forEach((button) => {
   });
 });
 
+navButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    setActiveView(button.dataset.viewTab);
+  });
+});
+
 aggressiveConfirm.addEventListener('change', () => {
   state.aggressiveConfirmed = aggressiveConfirm.checked;
   state.cleanupPreview = null;
@@ -1568,6 +1644,7 @@ clearCleanupHistoryButton.addEventListener('click', () => {
 });
 
 registerListeners();
+setActiveView('overview');
 setCleanupMode('review');
 lockResolution.value = state.cleanupLockResolution;
 renderSettings();
