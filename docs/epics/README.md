@@ -26,6 +26,7 @@ are ordered by dependency inside each epic. Status values are `todo`,
 | [E16](E16-browser-coverage-and-rule-quality.md) | Broaden browser coverage and improve tracker classification quality | 6 |
 | [E17](E17-diagnostics-and-observability.md) | Add local privacy-preserving diagnostics and visible run states | 6 |
 | [E18](E18-release-trust-and-maintenance.md) | Make builds, rule updates, rollback, and releases traceable | 6 |
+| [E19](E19-extension-popup-product-polish.md) | Turn the extension popup into a polished companion UI for live tracker blocking | 7 |
 
 ## Cleanup-Hardening Traceability
 
@@ -51,6 +52,12 @@ are ordered by dependency inside each epic. Status values are `todo`,
 | Coverage: more browsers, normalized profile layouts, broader artifact inventory, and stronger rule quality gates | [E16](E16-browser-coverage-and-rule-quality.md) |
 | Observability: structured local run history, visible blocked/partial/failed states, diagnostic export, and stall detection | [E17](E17-diagnostics-and-observability.md) |
 | Trust and maintenance: signed rule activation, bundle rollback, version traceability, reproducible releases, and update policy | [E18](E18-release-trust-and-maintenance.md) |
+
+## Product-Polish Traceability
+
+| Product Area | Epic |
+|--------------|------|
+| Extension popup: protection state, current-site controls, blocked counts, rule metadata, and visual polish | [E19](E19-extension-popup-product-polish.md) |
 
 ## Definition Of Done
 
