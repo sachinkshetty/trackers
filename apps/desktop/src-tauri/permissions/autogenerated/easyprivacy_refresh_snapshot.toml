@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-easyprivacy-refresh-snapshot"
+description = "Enables the easyprivacy_refresh_snapshot command without any pre-configured scope."
+commands.allow = ["easyprivacy_refresh_snapshot"]
+
+[[permission]]
+identifier = "deny-easyprivacy-refresh-snapshot"
+description = "Denies the easyprivacy_refresh_snapshot command without any pre-configured scope."
+commands.deny = ["easyprivacy_refresh_snapshot"]

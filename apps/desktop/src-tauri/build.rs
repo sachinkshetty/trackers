@@ -7,6 +7,8 @@ fn main() {
             "preview_cleanup",
             "execute_cleanup",
             "settings_snapshot",
+            "easyprivacy_refresh_snapshot",
+            "refresh_easyprivacy_rules",
         ]),
     ))
     .expect("failed to build tauri desktop manifest");

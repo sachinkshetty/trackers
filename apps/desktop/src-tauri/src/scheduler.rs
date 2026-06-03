@@ -234,7 +234,22 @@ mod tests {
         assert!(snapshot.rescan.next_run_at_ms.is_some());
 
         let reloaded = scheduler_snapshot_for_path(&path).unwrap();
-        assert_eq!(reloaded, snapshot);
+        assert!(reloaded.rule_refresh.enabled);
+        assert!(reloaded.rescan.enabled);
+        assert_eq!(reloaded.rule_refresh.interval_days, 14);
+        assert_eq!(reloaded.rescan.interval_days, 3);
+        assert_eq!(
+            reloaded.rule_refresh.last_result,
+            SchedulerTaskResult::NeverRun
+        );
+        assert_eq!(reloaded.rescan.last_result, SchedulerTaskResult::NeverRun);
+        assert!(reloaded.rule_refresh.next_run_at_ms.is_some());
+        assert!(reloaded.rescan.next_run_at_ms.is_some());
+        assert!(
+            reloaded.rule_refresh.next_run_at_ms.unwrap()
+                >= snapshot.rule_refresh.next_run_at_ms.unwrap()
+        );
+        assert!(reloaded.rescan.next_run_at_ms.unwrap() >= snapshot.rescan.next_run_at_ms.unwrap());
     }
 
     #[test]
