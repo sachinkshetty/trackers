@@ -22,7 +22,7 @@ recovery path for destructive changes.
 - Users can view and clear local cleanup history.
 
 ### E12-S03 Create local backups before destructive cleanup
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - The app snapshots files or records needed to restore supported actions before mutation.

@@ -93,6 +93,10 @@ app.innerHTML = `
               <input type="checkbox" data-auto-close-confirm />
               Confirm automatic browser close
             </label>
+            <label class="confirm-toggle">
+              <input type="checkbox" data-allow-no-backup />
+              Proceed without a backup
+            </label>
             <button class="button primary" data-preview-cleanup disabled>Preview cleanup</button>
             <button class="button" data-execute-cleanup disabled>Clean trackers</button>
           </div>
@@ -162,6 +166,7 @@ const includeGeneralCleanup = app.querySelector('[data-include-general-cleanup]'
 const cleanupModeButtons = app.querySelectorAll('[data-cleanup-mode]');
 const cleanupBrowser = app.querySelector('[data-cleanup-browser]');
 const lockResolution = app.querySelector('[data-lock-resolution]');
+const allowNoBackup = app.querySelector('[data-allow-no-backup]');
 const settingsSummary = app.querySelector('[data-settings-summary]');
 const ruleVersion = app.querySelector('[data-rule-version]');
 const updateState = app.querySelector('[data-update-state]');
@@ -183,6 +188,7 @@ const state = {
   includeGeneralCleanup: false,
   aggressiveConfirmed: false,
   automaticCloseConfirmed: false,
+  allowNoBackup: false,
   cleanupPreview: null,
   cleanupExecution: null,
   cleanupPreviewRunning: false,
@@ -834,6 +840,7 @@ async function executeCleanup() {
         }
         return 'retryAfterManualClose';
       })(),
+      allowNoBackup: allowNoBackup.checked,
     },
   });
 
@@ -842,6 +849,24 @@ async function executeCleanup() {
   loadCleanupHistory().catch((error) => {
     setStatus(`Cleanup history refresh failed: ${error}`);
   });
+
+  const status = result.status ?? {};
+  if (status.kind === 'backup_failed') {
+    setStatus(`Cleanup failed: backup failed: ${status.message}`);
+    return;
+  }
+  if (status.kind === 'retry_after_close') {
+    setStatus('Cleanup paused: close the locked browsers and try again.');
+    return;
+  }
+  if (status.kind === 'confirmation_required') {
+    setStatus('Cleanup paused: confirm automatic browser close to continue.');
+    return;
+  }
+  if (status.kind === 'browser_close_failed') {
+    setStatus(`Cleanup failed: ${status.message}`);
+    return;
+  }
 
   const execution = result.execution;
   const skippedIds = execution.skippedIds ?? execution.skipped_ids ?? [];
