@@ -14,7 +14,7 @@ profile directories by default.
 - Scanning remains read-only and avoids exposing stored values.
 
 ### E11-S02 Classify storage origins with tracker rules
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Storage origins are matched against the active tracker-rule bundle.
