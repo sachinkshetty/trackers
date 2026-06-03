@@ -1,9 +1,10 @@
-mod backend;
 pub mod audit;
+mod backend;
 mod backup;
 mod cleanup;
 mod commands;
 mod scan;
+mod scheduler;
 mod settings;
 mod state;
 
@@ -20,6 +21,8 @@ pub fn run() {
             commands::execute_cleanup,
             commands::cleanup_audit_history,
             commands::clear_cleanup_audit_history,
+            commands::scheduler_snapshot,
+            commands::update_scheduler_settings,
             commands::restore_cleanup_preview,
             commands::restore_cleanup,
             commands::settings_snapshot
