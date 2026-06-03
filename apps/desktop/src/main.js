@@ -142,6 +142,18 @@ app.innerHTML = `
           </div>
           <div class="stack" data-cleanup-history></div>
         </article>
+
+        <article class="card results-card">
+          <div class="results-header">
+            <h2>Restore backups</h2>
+            <p class="subtle" data-restore-summary>No restore preview yet.</p>
+          </div>
+          <div class="toolbar cleanup-toolbar">
+            <button class="button" data-preview-restore>Preview restore</button>
+            <button class="button primary" data-execute-restore disabled>Restore latest cleanup</button>
+          </div>
+          <div class="stack" data-restore-preview></div>
+        </article>
       </div>
     </section>
   </main>
@@ -175,6 +187,10 @@ const diagnosticsOptIn = app.querySelector('[data-diagnostics-opt-in]');
 const cleanupHistorySummary = app.querySelector('[data-cleanup-history-summary]');
 const cleanupHistoryContainer = app.querySelector('[data-cleanup-history]');
 const clearCleanupHistoryButton = app.querySelector('[data-clear-cleanup-history]');
+const restoreSummary = app.querySelector('[data-restore-summary]');
+const restorePreviewContainer = app.querySelector('[data-restore-preview]');
+const previewRestoreButton = app.querySelector('[data-preview-restore]');
+const executeRestoreButton = app.querySelector('[data-execute-restore]');
 
 const state = {
   discovery: null,
@@ -192,6 +208,9 @@ const state = {
   cleanupPreview: null,
   cleanupExecution: null,
   cleanupPreviewRunning: false,
+  restorePreview: null,
+  restoreExecution: null,
+  restorePreviewRunning: false,
   cleanupHistory: [],
   scanRunning: false,
   settings: {
@@ -557,6 +576,96 @@ function renderCleanupHistory() {
     .join('');
 }
 
+function renderRestorePreview() {
+  const preview = state.restorePreview;
+  const records = preview?.records ?? [];
+  const warnings = preview?.warnings ?? [];
+  const execution = state.restoreExecution;
+
+  if (!preview) {
+    if (!execution) {
+      restoreSummary.textContent = 'No restore preview yet.';
+      restorePreviewContainer.innerHTML = '<p class="empty">Preview a restore to see what will be recovered.</p>';
+    } else {
+      const completed = execution.completedIds ?? execution.completed_ids ?? [];
+      const skipped = execution.skippedIds ?? execution.skipped_ids ?? [];
+      const failed = execution.failed ?? [];
+      restoreSummary.textContent =
+        failed.length > 0
+          ? `Restore finished with ${failed.length} failure(s).`
+          : skipped.length > 0
+            ? `Restore finished with ${skipped.length} skipped item(s).`
+            : `Restore finished successfully for ${completed.length} item(s).`;
+      restorePreviewContainer.innerHTML = `
+        <div class="row">
+          <strong>Restore result</strong>
+          <div class="stack nested">
+            <p class="row">Completed: ${completed.length}</p>
+            <p class="row">Skipped: ${skipped.length}</p>
+            <p class="row">Failed: ${failed.length}</p>
+            ${failed.length === 0
+              ? ''
+              : failed
+                  .map((failure) => `<p class="row warning">${failure.actionId ?? failure.action_id}: ${failure.message}</p>`)
+                  .join('')}
+          </div>
+        </div>
+      `;
+    }
+    executeRestoreButton.disabled = true;
+    return;
+  }
+
+  if (records.length === 0) {
+    restoreSummary.textContent = warnings[0] ?? 'No restore candidates available.';
+    restorePreviewContainer.innerHTML = warnings.length === 0
+      ? '<p class="empty">No cleanup backups are available for restore.</p>'
+      : warnings.map((warning) => `<p class="row warning">${warning}</p>`).join('');
+    executeRestoreButton.disabled = true;
+    return;
+  }
+
+  restoreSummary.textContent = `${records.length} backup item(s) ready to restore.`;
+  executeRestoreButton.disabled = state.scanRunning || state.restorePreviewRunning;
+
+  restorePreviewContainer.innerHTML = `
+    ${warnings.length === 0
+      ? ''
+      : warnings.map((warning) => `<p class="row warning">${warning}</p>`).join('')}
+    ${records
+      .map(
+        (record) => `
+          <div class="row artifact">
+            <div class="artifact-head">
+              <strong>${new Date(record.timestampMs).toLocaleString()}</strong>
+              <span>${record.browser}</span>
+              <span>${record.profileName}</span>
+              <span>${record.artifactType}</span>
+            </div>
+            <p class="artifact-detail">${record.actionId} · ${record.mode} · bundle ${record.ruleBundleVersion}</p>
+            <p class="artifact-detail">${record.profilePath} · backup ${record.backupPath}</p>
+          </div>
+        `,
+      )
+      .join('')}
+    ${execution ? `
+      <div class="row">
+        <strong>Restore result</strong>
+        <div class="stack nested">
+          <p class="row">Completed: ${execution.completedIds?.length ?? execution.completed_ids?.length ?? 0}</p>
+          <p class="row">Skipped: ${execution.skippedIds?.length ?? execution.skipped_ids?.length ?? 0}</p>
+          <p class="row">Failed: ${(execution.failed ?? []).length}</p>
+          ${(execution.failed ?? []).length === 0
+            ? ''
+            : (execution.failed ?? [])
+                .map((failure) => `<p class="row warning">${failure.actionId ?? failure.action_id}: ${failure.message}</p>`)
+                .join('')}
+        </div>
+      </div>
+    ` : ''}
+  `;
+}
+
 function syncCleanupControls() {
   aggressiveConfirm.disabled = state.scanRunning || state.cleanupMode !== 'aggressive';
   autoCloseConfirm.disabled = state.scanRunning || state.cleanupLockResolution !== 'requestAutomaticClose';
@@ -585,11 +694,23 @@ function syncCleanupControls() {
     : 'Clean trackers';
 }
 
+function syncRestoreControls() {
+  previewRestoreButton.disabled = state.scanRunning || state.restorePreviewRunning;
+  previewRestoreButton.textContent = state.restorePreviewRunning ? 'Generating...' : 'Preview restore';
+  executeRestoreButton.disabled =
+    state.scanRunning ||
+    state.restorePreviewRunning ||
+    !state.restorePreview ||
+    (state.restorePreview.records ?? []).length === 0;
+  executeRestoreButton.textContent = 'Restore latest cleanup';
+}
+
 function setRunning(running) {
   state.scanRunning = running;
   startButton.disabled = running || !state.discovery;
   cancelButton.disabled = !running;
   syncCleanupControls();
+  syncRestoreControls();
 }
 
 function setStatus(message) {
@@ -823,6 +944,55 @@ async function previewCleanup() {
   }
 }
 
+async function previewRestore() {
+  state.restorePreviewRunning = true;
+  syncRestoreControls();
+  setStatus('Generating restore preview...');
+
+  try {
+    const preview = await invoke('restore_cleanup_preview', {});
+    state.restorePreview = preview;
+    state.restoreExecution = null;
+    renderRestorePreview();
+    setStatus('Restore preview ready.');
+  } finally {
+    state.restorePreviewRunning = false;
+    syncRestoreControls();
+    renderRestorePreview();
+  }
+}
+
+async function executeRestore() {
+  if (!state.restorePreview || state.scanRunning) {
+    return;
+  }
+
+  const result = await invoke('restore_cleanup', {
+    request: state.restorePreview,
+  });
+
+  state.restoreExecution = result;
+  const completed = result.completedIds ?? result.completed_ids ?? [];
+  const skipped = result.skippedIds ?? result.skipped_ids ?? [];
+  const failed = result.failed ?? [];
+
+  if (failed.length === 0 && skipped.length === 0) {
+    state.restorePreview = null;
+  }
+  renderRestorePreview();
+  syncRestoreControls();
+
+  if (failed.length > 0) {
+    setStatus(`Restore finished with ${failed.length} failure(s).`);
+    return;
+  }
+  if (skipped.length > 0) {
+    setStatus(`Restore finished with ${skipped.length} skipped item(s).`);
+    return;
+  }
+  setStatus(`Restore finished successfully for ${completed.length} item(s).`);
+}
+
 async function executeCleanup() {
   if (!state.cleanupPreview || state.scanRunning) {
     return;
@@ -877,6 +1047,11 @@ async function executeCleanup() {
   } else {
     setStatus('Cleanup finished successfully.');
   }
+
+  state.restorePreview = null;
+  state.restoreExecution = null;
+  renderRestorePreview();
+  syncRestoreControls();
 }
 
 function toggleExpertMode() {
@@ -941,9 +1116,21 @@ previewCleanupButton.addEventListener('click', () => {
   });
 });
 
+previewRestoreButton.addEventListener('click', () => {
+  previewRestore().catch((error) => {
+    setStatus(`Restore preview failed: ${error}`);
+  });
+});
+
 executeCleanupButton.addEventListener('click', () => {
   executeCleanup().catch((error) => {
     setStatus(`Cleanup failed: ${error}`);
+  });
+});
+
+executeRestoreButton.addEventListener('click', () => {
+  executeRestore().catch((error) => {
+    setStatus(`Restore failed: ${error}`);
   });
 });
 
@@ -1011,6 +1198,8 @@ registerListeners();
 setCleanupMode('review');
 lockResolution.value = state.cleanupLockResolution;
 renderSettings();
+renderRestorePreview();
+syncRestoreControls();
 loadDiscovery().catch((error) => {
   setStatus(`Failed to load profiles: ${error}`);
 });

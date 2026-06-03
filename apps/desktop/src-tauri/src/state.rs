@@ -1,4 +1,9 @@
-use crate::{backend::DesktopBootstrap, cleanup::CleanupPreviewResult, scan::ScanRunResult};
+use crate::{
+    backend::DesktopBootstrap,
+    backup::CleanupRestorePreviewResult,
+    cleanup::CleanupPreviewResult,
+    scan::ScanRunResult,
+};
 use std::sync::Mutex;
 
 #[derive(Debug, Default)]
@@ -11,6 +16,7 @@ struct AppStateSnapshot {
     discovery: Option<DesktopBootstrap>,
     scan: Option<ScanRunResult>,
     cleanup_preview: Option<CleanupPreviewResult>,
+    restore_preview: Option<CleanupRestorePreviewResult>,
 }
 
 impl AppState {
@@ -40,6 +46,18 @@ impl AppState {
 
     pub fn clear_cleanup_preview(&self) {
         self.with_snapshot(|snapshot| snapshot.cleanup_preview = None);
+    }
+
+    pub fn replace_restore_preview(&self, preview: CleanupRestorePreviewResult) {
+        self.with_snapshot(|snapshot| snapshot.restore_preview = Some(preview));
+    }
+
+    pub fn latest_restore_preview(&self) -> Option<CleanupRestorePreviewResult> {
+        self.with_snapshot(|snapshot| snapshot.restore_preview.clone())
+    }
+
+    pub fn clear_restore_preview(&self) {
+        self.with_snapshot(|snapshot| snapshot.restore_preview = None);
     }
 
     fn with_snapshot<R>(&self, callback: impl FnOnce(&mut AppStateSnapshot) -> R) -> R {
