@@ -6,7 +6,7 @@ schedule without unexpected browser disruption.
 ## Stories
 
 ### E13-S01 Define local scheduling preferences
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Users can enable or disable scheduled rule refreshes and rescans independently.

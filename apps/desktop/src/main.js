@@ -134,6 +134,57 @@ app.innerHTML = `
 
         <article class="card results-card">
           <div class="results-header">
+            <h2>Scheduled maintenance</h2>
+            <p class="subtle" data-scheduler-summary>Loading scheduled maintenance preferences...</p>
+          </div>
+          <div class="stack" data-scheduler-panel>
+            <div class="row">
+              <strong>Rule refresh</strong>
+              <label class="setting-toggle">
+                <input type="checkbox" data-rule-refresh-enabled />
+                Enable scheduled rule refresh
+              </label>
+              <label class="cleanup-filter">
+                Frequency
+                <select data-rule-refresh-frequency>
+                  <option value="1">Every day</option>
+                  <option value="7">Every 7 days</option>
+                  <option value="14">Every 14 days</option>
+                  <option value="30">Every 30 days</option>
+                </select>
+              </label>
+              <p class="artifact-detail" data-rule-refresh-last-run>Last run: Loading...</p>
+              <p class="artifact-detail" data-rule-refresh-next-run>Next run: Loading...</p>
+              <p class="artifact-detail" data-rule-refresh-last-result>Last result: Loading...</p>
+            </div>
+            <div class="row">
+              <strong>Read-only rescan</strong>
+              <label class="setting-toggle">
+                <input type="checkbox" data-scheduled-rescan-enabled />
+                Enable scheduled read-only rescans
+              </label>
+              <label class="cleanup-filter">
+                Frequency
+                <select data-scheduled-rescan-frequency>
+                  <option value="1">Every day</option>
+                  <option value="7">Every 7 days</option>
+                  <option value="14">Every 14 days</option>
+                  <option value="30">Every 30 days</option>
+                </select>
+              </label>
+              <p class="artifact-detail" data-scheduled-rescan-last-run>Last run: Loading...</p>
+              <p class="artifact-detail" data-scheduled-rescan-next-run>Next run: Loading...</p>
+              <p class="artifact-detail" data-scheduled-rescan-last-result>Last result: Loading...</p>
+            </div>
+            <p class="subtle">
+              Scheduled maintenance is disabled by default. When enabled, both tasks use conservative
+              intervals and stay read-only until the user explicitly runs cleanup.
+            </p>
+          </div>
+        </article>
+
+        <article class="card results-card">
+          <div class="results-header">
             <h2>Cleanup history</h2>
             <p class="subtle" data-cleanup-history-summary>No cleanup history yet.</p>
           </div>
@@ -184,6 +235,18 @@ const ruleVersion = app.querySelector('[data-rule-version]');
 const updateState = app.querySelector('[data-update-state]');
 const telemetryOptIn = app.querySelector('[data-telemetry-opt-in]');
 const diagnosticsOptIn = app.querySelector('[data-diagnostics-opt-in]');
+const schedulerSummary = app.querySelector('[data-scheduler-summary]');
+const schedulerPanel = app.querySelector('[data-scheduler-panel]');
+const ruleRefreshEnabled = app.querySelector('[data-rule-refresh-enabled]');
+const ruleRefreshFrequency = app.querySelector('[data-rule-refresh-frequency]');
+const ruleRefreshLastRun = app.querySelector('[data-rule-refresh-last-run]');
+const ruleRefreshNextRun = app.querySelector('[data-rule-refresh-next-run]');
+const ruleRefreshLastResult = app.querySelector('[data-rule-refresh-last-result]');
+const scheduledRescanEnabled = app.querySelector('[data-scheduled-rescan-enabled]');
+const scheduledRescanFrequency = app.querySelector('[data-scheduled-rescan-frequency]');
+const scheduledRescanLastRun = app.querySelector('[data-scheduled-rescan-last-run]');
+const scheduledRescanNextRun = app.querySelector('[data-scheduled-rescan-next-run]');
+const scheduledRescanLastResult = app.querySelector('[data-scheduled-rescan-last-result]');
 const cleanupHistorySummary = app.querySelector('[data-cleanup-history-summary]');
 const cleanupHistoryContainer = app.querySelector('[data-cleanup-history]');
 const clearCleanupHistoryButton = app.querySelector('[data-clear-cleanup-history]');
@@ -213,6 +276,9 @@ const state = {
   restorePreviewRunning: false,
   cleanupHistory: [],
   scanRunning: false,
+  scheduler: null,
+  schedulerLoading: false,
+  schedulerSaving: false,
   settings: {
     ruleBundleVersion: 'loading',
     updateState: 'loading',
@@ -568,6 +634,104 @@ function renderSettings() {
   diagnosticsOptIn.checked = state.settings.diagnosticsOptIn;
 }
 
+function formatSchedulerTimestamp(timestampMs) {
+  if (!timestampMs) {
+    return 'Never';
+  }
+  return new Date(timestampMs).toLocaleString();
+}
+
+function formatSchedulerTaskResult(result) {
+  if (!result) {
+    return 'Never run';
+  }
+
+  if (typeof result === 'string') {
+    return result;
+  }
+
+  switch (result.kind) {
+    case 'never_run':
+      return 'Never run';
+    case 'succeeded':
+      return `Succeeded: ${result.message}`;
+    case 'failed':
+      return `Failed: ${result.message}`;
+    default:
+      return 'Unknown result';
+  }
+}
+
+function schedulerTask(snapshot) {
+  return snapshot ?? {
+    enabled: false,
+    intervalDays: 7,
+    lastRunAtMs: null,
+    nextRunAtMs: null,
+    lastResult: { kind: 'never_run' },
+  };
+}
+
+function renderScheduler() {
+  const snapshot = state.scheduler;
+  if (!snapshot) {
+    schedulerSummary.textContent = 'Loading scheduled maintenance preferences...';
+    schedulerPanel.classList.add('dimmed');
+    ruleRefreshEnabled.checked = false;
+    ruleRefreshFrequency.value = '7';
+    ruleRefreshLastRun.textContent = 'Last run: Loading...';
+    ruleRefreshNextRun.textContent = 'Next run: Loading...';
+    ruleRefreshLastResult.textContent = 'Last result: Loading...';
+    scheduledRescanEnabled.checked = false;
+    scheduledRescanFrequency.value = '7';
+    scheduledRescanLastRun.textContent = 'Last run: Loading...';
+    scheduledRescanNextRun.textContent = 'Next run: Loading...';
+    scheduledRescanLastResult.textContent = 'Last result: Loading...';
+    return;
+  }
+
+  const refresh = schedulerTask(snapshot.ruleRefresh ?? snapshot.rule_refresh);
+  const rescan = schedulerTask(snapshot.rescan);
+
+  schedulerSummary.textContent = refresh.enabled || rescan.enabled
+    ? 'Scheduled maintenance is enabled.'
+    : 'Scheduled maintenance is disabled by default.';
+  schedulerPanel.classList.remove('dimmed');
+
+  ruleRefreshEnabled.checked = refresh.enabled;
+  ruleRefreshFrequency.value = String(refresh.intervalDays ?? refresh.interval_days ?? 7);
+  ruleRefreshLastRun.textContent = `Last run: ${formatSchedulerTimestamp(refresh.lastRunAtMs ?? refresh.last_run_at_ms)}`;
+  ruleRefreshNextRun.textContent = refresh.enabled
+    ? `Next run: ${formatSchedulerTimestamp(refresh.nextRunAtMs ?? refresh.next_run_at_ms)}`
+    : 'Next run: Disabled';
+  ruleRefreshLastResult.textContent = `Last result: ${formatSchedulerTaskResult(refresh.lastResult ?? refresh.last_result)}`;
+
+  scheduledRescanEnabled.checked = rescan.enabled;
+  scheduledRescanFrequency.value = String(rescan.intervalDays ?? rescan.interval_days ?? 7);
+  scheduledRescanLastRun.textContent = `Last run: ${formatSchedulerTimestamp(rescan.lastRunAtMs ?? rescan.last_run_at_ms)}`;
+  scheduledRescanNextRun.textContent = rescan.enabled
+    ? `Next run: ${formatSchedulerTimestamp(rescan.nextRunAtMs ?? rescan.next_run_at_ms)}`
+    : 'Next run: Disabled';
+  scheduledRescanLastResult.textContent = `Last result: ${formatSchedulerTaskResult(rescan.lastResult ?? rescan.last_result)}`;
+}
+
+function syncSchedulerControls() {
+  const disabled = state.schedulerLoading || state.schedulerSaving;
+  ruleRefreshEnabled.disabled = disabled;
+  ruleRefreshFrequency.disabled = disabled;
+  scheduledRescanEnabled.disabled = disabled;
+  scheduledRescanFrequency.disabled = disabled;
+}
+
+function schedulerUpdateRequest() {
+  return {
+    ruleRefreshEnabled: ruleRefreshEnabled.checked,
+    ruleRefreshIntervalDays: Number(ruleRefreshFrequency.value),
+    rescanEnabled: scheduledRescanEnabled.checked,
+    rescanIntervalDays: Number(scheduledRescanFrequency.value),
+  };
+}
+
 function renderCleanupHistory() {
   const records = state.cleanupHistory ?? [];
   cleanupHistorySummary.textContent =
@@ -896,6 +1060,44 @@ async function loadSettings() {
   renderSettings();
 }
 
+async function loadScheduler() {
+  state.schedulerLoading = true;
+  syncSchedulerControls();
+  try {
+    state.scheduler = await invoke('scheduler_snapshot', {});
+    renderScheduler();
+  } finally {
+    state.schedulerLoading = false;
+    syncSchedulerControls();
+    renderScheduler();
+  }
+}
+
+async function saveScheduler() {
+  if (!state.scheduler) {
+    return;
+  }
+
+  state.schedulerSaving = true;
+  syncSchedulerControls();
+  renderScheduler();
+
+  try {
+    state.scheduler = await invoke('update_scheduler_settings', {
+      request: schedulerUpdateRequest(),
+    });
+    renderScheduler();
+    setStatus('Scheduled maintenance preferences saved.');
+  } catch (error) {
+    setStatus(`Scheduled maintenance update failed: ${error}`);
+    await loadScheduler();
+  } finally {
+    state.schedulerSaving = false;
+    syncSchedulerControls();
+    renderScheduler();
+  }
+}
+
 async function loadCleanupHistory() {
   const history = await invoke('cleanup_audit_history', {});
   state.cleanupHistory = history.records ?? [];
@@ -1208,6 +1410,42 @@ diagnosticsOptIn.addEventListener('change', () => {
   setDiagnosticsOptIn(diagnosticsOptIn.checked);
 });
 
+ruleRefreshEnabled.addEventListener('change', () => {
+  if (state.scheduler) {
+    state.scheduler.ruleRefresh.enabled = ruleRefreshEnabled.checked;
+    saveScheduler().catch((error) => {
+      setStatus(`Scheduled maintenance update failed: ${error}`);
+    });
+  }
+});
+
+ruleRefreshFrequency.addEventListener('change', () => {
+  if (state.scheduler) {
+    state.scheduler.ruleRefresh.intervalDays = Number(ruleRefreshFrequency.value);
+    saveScheduler().catch((error) => {
+      setStatus(`Scheduled maintenance update failed: ${error}`);
+    });
+  }
+});
+
+scheduledRescanEnabled.addEventListener('change', () => {
+  if (state.scheduler) {
+    state.scheduler.rescan.enabled = scheduledRescanEnabled.checked;
+    saveScheduler().catch((error) => {
+      setStatus(`Scheduled maintenance update failed: ${error}`);
+    });
+  }
+});
+
+scheduledRescanFrequency.addEventListener('change', () => {
+  if (state.scheduler) {
+    state.scheduler.rescan.intervalDays = Number(scheduledRescanFrequency.value);
+    saveScheduler().catch((error) => {
+      setStatus(`Scheduled maintenance update failed: ${error}`);
+    });
+  }
+});
+
 clearCleanupHistoryButton.addEventListener('click', () => {
   invoke('clear_cleanup_audit_history', {})
     .then(() => loadCleanupHistory())
@@ -1223,6 +1461,7 @@ registerListeners();
 setCleanupMode('review');
 lockResolution.value = state.cleanupLockResolution;
 renderSettings();
+renderScheduler();
 renderRestorePreview();
 syncRestoreControls();
 loadDiscovery().catch((error) => {
@@ -1232,6 +1471,10 @@ loadSettings().catch((error) => {
   state.settings.ruleBundleVersion = 'unavailable';
   state.settings.updateState = `Unavailable: ${error}`;
   renderSettings();
+});
+loadScheduler().catch((error) => {
+  schedulerSummary.textContent = `Scheduled maintenance unavailable: ${error}`;
+  schedulerPanel.innerHTML = '<p class="empty">Unable to load scheduled maintenance preferences.</p>';
 });
 loadCleanupHistory().catch((error) => {
   cleanupHistorySummary.textContent = `Cleanup history unavailable: ${error}`;

@@ -1,22 +1,26 @@
+use crate::audit::{
+    CleanupAuditHistory, cleanup_audit_history as cleanup_audit_history_snapshot,
+    clear_cleanup_audit_history as clear_cleanup_audit_history_snapshot,
+};
 use crate::backend::{
     DesktopBootstrap, ProfileDiscoveryRequest, discover_profiles as discover_profiles_snapshot,
-};
-use crate::cleanup::{
-    CleanupExecuteRequest, CleanupExecuteResult, CleanupPreviewRequest, CleanupPreviewResult,
-    execute_cleanup as execute_cleanup_snapshot, preview_cleanup as preview_cleanup_snapshot,
-};
-use crate::audit::{
-    CleanupAuditHistory, clear_cleanup_audit_history as clear_cleanup_audit_history_snapshot,
-    cleanup_audit_history as cleanup_audit_history_snapshot,
 };
 use crate::backup::{
     CleanupRestoreExecuteResult, CleanupRestorePreviewResult,
     restore_cleanup_backups as restore_cleanup_backups_snapshot,
     restore_cleanup_preview as restore_cleanup_preview_snapshot,
 };
+use crate::cleanup::{
+    CleanupExecuteRequest, CleanupExecuteResult, CleanupPreviewRequest, CleanupPreviewResult,
+    execute_cleanup as execute_cleanup_snapshot, preview_cleanup as preview_cleanup_snapshot,
+};
 use crate::scan::{
     CancellationFlag, ScanProgress, ScanRequest, ScanRunResult, embedded_rule_bundle, run_scan,
     scan_profile,
+};
+use crate::scheduler::{
+    SchedulerSnapshot, SchedulerUpdateRequest, scheduler_snapshot as scheduler_snapshot_snapshot,
+    update_scheduler_settings as update_scheduler_settings_snapshot,
 };
 use crate::settings::{DesktopSettingsSnapshot, settings_snapshot as settings_snapshot_snapshot};
 use crate::state::AppState;
@@ -66,6 +70,18 @@ pub fn cleanup_audit_history() -> Result<CleanupAuditHistory, String> {
 #[tauri::command]
 pub fn clear_cleanup_audit_history() -> Result<(), String> {
     clear_cleanup_audit_history_snapshot()
+}
+
+#[tauri::command]
+pub fn scheduler_snapshot() -> Result<SchedulerSnapshot, String> {
+    scheduler_snapshot_snapshot()
+}
+
+#[tauri::command]
+pub fn update_scheduler_settings(
+    request: SchedulerUpdateRequest,
+) -> Result<SchedulerSnapshot, String> {
+    update_scheduler_settings_snapshot(request)
 }
 
 #[tauri::command]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scheduler-snapshot"
+description = "Enables the scheduler_snapshot command without any pre-configured scope."
+commands.allow = ["scheduler_snapshot"]
+
+[[permission]]
+identifier = "deny-scheduler-snapshot"
+description = "Denies the scheduler_snapshot command without any pre-configured scope."
+commands.deny = ["scheduler_snapshot"]
