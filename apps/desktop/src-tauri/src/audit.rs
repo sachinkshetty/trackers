@@ -175,6 +175,9 @@ fn cleanup_outcome_for(
             CleanupExecutionStatus::BrowserCloseFailed { message } => {
                 format!("browser close failed: {message}")
             }
+            CleanupExecutionStatus::BackupFailed { message } => {
+                format!("backup failed: {message}")
+            }
         },
     }
 }

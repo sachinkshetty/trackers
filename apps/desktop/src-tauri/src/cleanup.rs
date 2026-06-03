@@ -13,6 +13,7 @@ use std::{
 
 use crate::backend::DesktopBootstrap;
 use crate::audit::record_cleanup_audit;
+use crate::backup::cleanup_backup_root;
 use crate::scan::ScanRunResult;
 use crate::state::AppState;
 
@@ -55,6 +56,8 @@ pub enum CleanupLockResolution {
 pub struct CleanupExecuteRequest {
     pub preview: CleanupPreviewResult,
     pub lock_resolution: CleanupLockResolution,
+    #[serde(default)]
+    pub allow_no_backup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,12 +70,13 @@ pub struct CleanupExecuteResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CleanupExecutionStatus {
     Completed,
     RetryAfterClose,
     ConfirmationRequired,
     BrowserCloseFailed { message: String },
+    BackupFailed { message: String },
 }
 
 pub fn preview_cleanup(
@@ -122,9 +126,20 @@ pub fn execute_cleanup(
     state: &AppState,
     request: CleanupExecuteRequest,
 ) -> Result<CleanupExecuteResult, String> {
+    execute_cleanup_with_backup_root(state, request, &cleanup_backup_root())
+}
+
+fn execute_cleanup_with_backup_root(
+    state: &AppState,
+    request: CleanupExecuteRequest,
+    backup_root: &Path,
+) -> Result<CleanupExecuteResult, String> {
     let stored_preview = state
         .latest_cleanup_preview()
         .ok_or_else(|| "cleanup preview is not available".to_string())?;
+    let scan = state
+        .latest_scan()
+        .ok_or_else(|| "cleanup scan is not available".to_string())?;
     if stored_preview != request.preview {
         return Err("cleanup preview is stale or was not issued by the backend".into());
     }
@@ -150,10 +165,33 @@ pub fn execute_cleanup(
     let preflight =
         preflight_locked_resources(&request.preview.plan, &lock_probe, resolution, &closer);
     let (status, execution) = match preflight {
-        PreflightResult::Ready { skipped_ids } => (
-            CleanupExecutionStatus::Completed,
-            execute_cleanup_plan(&request.preview.plan, &skipped_ids),
-        ),
+        PreflightResult::Ready { skipped_ids } => {
+            if !request.allow_no_backup {
+                if let Err(message) =
+                    crate::backup::create_cleanup_backups_for_path(
+                        backup_root,
+                        &scan,
+                        &request.preview,
+                        &skipped_ids,
+                    )
+                {
+                    (
+                        CleanupExecutionStatus::BackupFailed { message },
+                        CleanupExecutionResult::default(),
+                    )
+                } else {
+                    (
+                        CleanupExecutionStatus::Completed,
+                        execute_cleanup_plan(&request.preview.plan, &skipped_ids),
+                    )
+                }
+            } else {
+                (
+                    CleanupExecutionStatus::Completed,
+                    execute_cleanup_plan(&request.preview.plan, &skipped_ids),
+                )
+            }
+        }
         PreflightResult::RetryAfterClose => (
             CleanupExecutionStatus::RetryAfterClose,
             CleanupExecutionResult::default(),
@@ -172,15 +210,13 @@ pub fn execute_cleanup(
         state.clear_cleanup_preview();
     }
 
-    if let Some(scan) = state.latest_scan() {
-        let audit_result = CleanupExecuteResult {
-            execution: execution.clone(),
-            locked_action_ids: request.preview.locked_action_ids.clone(),
-            locked_profiles: request.preview.locked_profiles.clone(),
-            status: status.clone(),
-        };
-        let _ = record_cleanup_audit(&scan, &request.preview, &audit_result, &status);
-    }
+    let audit_result = CleanupExecuteResult {
+        execution: execution.clone(),
+        locked_action_ids: request.preview.locked_action_ids.clone(),
+        locked_profiles: request.preview.locked_profiles.clone(),
+        status: status.clone(),
+    };
+    let _ = record_cleanup_audit(&scan, &request.preview, &audit_result, &status);
 
     Ok(CleanupExecuteResult {
         execution,
@@ -644,6 +680,7 @@ mod tests {
             CleanupExecuteRequest {
                 preview: preview.clone(),
                 lock_resolution: CleanupLockResolution::SkipLocked,
+                allow_no_backup: false,
             },
         )
         .unwrap();
@@ -668,6 +705,7 @@ mod tests {
             CleanupExecuteRequest {
                 preview: retry_preview,
                 lock_resolution: CleanupLockResolution::RetryAfterManualClose,
+                allow_no_backup: false,
             },
         )
         .unwrap();
@@ -725,6 +763,7 @@ mod tests {
             CleanupExecuteRequest {
                 preview,
                 lock_resolution: CleanupLockResolution::RequestAutomaticClose { confirmed: false },
+                allow_no_backup: false,
             },
         )
         .unwrap();
@@ -827,6 +866,7 @@ mod tests {
                     ..preview
                 },
                 lock_resolution: CleanupLockResolution::SkipLocked,
+                allow_no_backup: false,
             },
         );
 
@@ -905,6 +945,7 @@ mod tests {
         let cache_path = profile.profile_path.join("Cache");
         std::fs::create_dir_all(&cache_path).unwrap();
         let state = AppState::default();
+        state.replace_scan(scan_snapshot(&profile, vec![]));
         let preview = CleanupPreviewResult {
             plan: CleanupPlan {
                 mode: CleanupMode::Review,
@@ -933,6 +974,7 @@ mod tests {
             CleanupExecuteRequest {
                 preview,
                 lock_resolution: CleanupLockResolution::SkipLocked,
+                allow_no_backup: false,
             },
         )
         .unwrap();
@@ -943,5 +985,126 @@ mod tests {
         );
         assert_eq!(result.execution.completed_ids.len(), 0);
         assert!(matches!(result.status, CleanupExecutionStatus::Completed));
+    }
+
+    #[test]
+    fn execute_cleanup_blocks_when_backup_root_is_invalid() {
+        let temp = tempfile::tempdir().unwrap();
+        let profile = profile(&temp);
+        let cookies_path = profile.profile_path.join("Network");
+        std::fs::create_dir_all(&cookies_path).unwrap();
+        std::fs::write(cookies_path.join("Cookies"), "fixture").unwrap();
+        let state = AppState::default();
+        state.replace_discovery(discovery_snapshot(&profile));
+        state.replace_scan(scan_snapshot(
+            &profile,
+            vec![Finding {
+                id: "chrome|Default|cookie|analytics.example".into(),
+                profile: profile.clone(),
+                artifact_type: ArtifactType::Cookie,
+                site: Some("analytics.example".into()),
+                classification: Some(scanner_core::StorageClassification {
+                    ownership: scanner_core::StorageOwnership::TrackerOwned,
+                    provenance: scanner_core::StorageClassificationProvenance::TrackerRules,
+                    confidence: Some(Confidence::High),
+                    matched_rule_ids: vec!["chrome|Default|cookie|analytics.example".into()],
+                }),
+                evidence_summary: "cookie host matched tracker rule".into(),
+                confidence: Some(Confidence::High),
+                cleanup_impact: scanner_core::CleanupImpact::MaySignOut,
+            }],
+        ));
+
+        let preview = preview_cleanup(
+            &state,
+            CleanupPreviewRequest {
+                mode: CleanupMode::Review,
+                selected_finding_ids: vec!["chrome|Default|cookie|analytics.example".into()],
+                aggressive_confirmed: false,
+            },
+        )
+        .unwrap();
+
+        let invalid_backup_root = temp.path().join("backup-root-file");
+        std::fs::write(&invalid_backup_root, "not a directory").unwrap();
+
+        let result = execute_cleanup_with_backup_root(
+            &state,
+            CleanupExecuteRequest {
+                preview,
+                lock_resolution: CleanupLockResolution::SkipLocked,
+                allow_no_backup: false,
+            },
+            &invalid_backup_root,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            result.status,
+            CleanupExecutionStatus::BackupFailed { .. }
+        ));
+        assert!(cookies_path.join("Cookies").exists());
+    }
+
+    #[test]
+    fn execute_cleanup_can_bypass_backup_when_explicitly_requested() {
+        let temp = tempfile::tempdir().unwrap();
+        let profile = profile(&temp);
+        let cache_path = profile.profile_path.join("Cache");
+        std::fs::create_dir_all(&cache_path).unwrap();
+        let cache_entry = cache_path.join("entry");
+        std::fs::write(&cache_entry, "cached").unwrap();
+        let state = AppState::default();
+        state.replace_discovery(discovery_snapshot(&profile));
+        state.replace_scan(scan_snapshot(
+            &profile,
+            vec![Finding {
+                id: "chrome|Default|cache|local-cache".into(),
+                profile: profile.clone(),
+                artifact_type: ArtifactType::Cache,
+                site: None,
+                classification: None,
+                evidence_summary: "cache directory is present in the browser profile".into(),
+                confidence: None,
+                cleanup_impact: scanner_core::CleanupImpact::ReviewRequired,
+            }],
+        ));
+
+        let preview = CleanupPreviewResult {
+            plan: CleanupPlan {
+                mode: CleanupMode::Review,
+                warnings: vec![],
+                estimated_action_count: 1,
+                actions: vec![scanner_core::CleanupAction {
+                    id: "chrome|Default|cache|local-cache".into(),
+                    artifact_type: scanner_core::ArtifactType::Cache,
+                    target: scanner_core::CleanupTarget::ProfileArtifact { path: cache_entry.clone() },
+                    requires_browser_closed: true,
+                }],
+            },
+            locked_action_ids: vec![],
+            locked_profiles: vec![],
+            requires_confirmation: false,
+            warnings: vec![],
+        };
+        state.replace_cleanup_preview(preview.clone());
+
+        let invalid_backup_root = temp.path().join("backup-root-file");
+        std::fs::write(&invalid_backup_root, "not a directory").unwrap();
+
+        let result = execute_cleanup_with_backup_root(
+            &state,
+            CleanupExecuteRequest {
+                preview,
+                lock_resolution: CleanupLockResolution::SkipLocked,
+                allow_no_backup: true,
+            },
+            &invalid_backup_root,
+        )
+        .unwrap();
+
+        assert!(matches!(result.status, CleanupExecutionStatus::Completed));
+        assert_eq!(result.execution.completed_ids.len(), 1);
+        assert!(!cache_entry.exists());
     }
 }

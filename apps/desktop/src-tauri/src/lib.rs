@@ -1,5 +1,6 @@
 mod backend;
 pub mod audit;
+mod backup;
 mod cleanup;
 mod commands;
 mod scan;
