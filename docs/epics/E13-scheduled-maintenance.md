@@ -14,7 +14,7 @@ schedule without unexpected browser disruption.
 - Scheduling defaults are conservative and clearly documented.
 
 ### E13-S02 Stage and validate EasyPrivacy refreshes
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Refresh downloads the official EasyPrivacy subscription and compiles the supported subset.

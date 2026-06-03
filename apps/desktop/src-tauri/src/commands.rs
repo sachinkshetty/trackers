@@ -14,6 +14,11 @@ use crate::cleanup::{
     CleanupExecuteRequest, CleanupExecuteResult, CleanupPreviewRequest, CleanupPreviewResult,
     execute_cleanup as execute_cleanup_snapshot, preview_cleanup as preview_cleanup_snapshot,
 };
+use crate::refresh::{
+    EasyPrivacyRefreshSnapshot,
+    easyprivacy_refresh_snapshot as easyprivacy_refresh_snapshot_snapshot,
+    refresh_easyprivacy_rules as refresh_easyprivacy_rules_snapshot,
+};
 use crate::scan::{
     CancellationFlag, ScanProgress, ScanRequest, ScanRunResult, embedded_rule_bundle, run_scan,
     scan_profile,
@@ -60,6 +65,16 @@ pub fn execute_cleanup(
 #[tauri::command]
 pub fn settings_snapshot() -> DesktopSettingsSnapshot {
     settings_snapshot_snapshot()
+}
+
+#[tauri::command]
+pub fn easyprivacy_refresh_snapshot() -> Result<EasyPrivacyRefreshSnapshot, String> {
+    easyprivacy_refresh_snapshot_snapshot()
+}
+
+#[tauri::command]
+pub fn refresh_easyprivacy_rules() -> Result<EasyPrivacyRefreshSnapshot, String> {
+    refresh_easyprivacy_rules_snapshot()
 }
 
 #[tauri::command]

@@ -134,6 +134,17 @@ app.innerHTML = `
 
         <article class="card results-card">
           <div class="results-header">
+            <h2>EasyPrivacy refresh</h2>
+            <p class="subtle" data-refresh-summary>Loading EasyPrivacy refresh state...</p>
+          </div>
+          <div class="toolbar cleanup-toolbar">
+            <button class="button primary" data-refresh-easyprivacy>Refresh now</button>
+          </div>
+          <div class="stack" data-refresh-panel></div>
+        </article>
+
+        <article class="card results-card">
+          <div class="results-header">
             <h2>Scheduled maintenance</h2>
             <p class="subtle" data-scheduler-summary>Loading scheduled maintenance preferences...</p>
           </div>
@@ -235,6 +246,9 @@ const ruleVersion = app.querySelector('[data-rule-version]');
 const updateState = app.querySelector('[data-update-state]');
 const telemetryOptIn = app.querySelector('[data-telemetry-opt-in]');
 const diagnosticsOptIn = app.querySelector('[data-diagnostics-opt-in]');
+const refreshSummary = app.querySelector('[data-refresh-summary]');
+const refreshPanel = app.querySelector('[data-refresh-panel]');
+const refreshEasyPrivacyButton = app.querySelector('[data-refresh-easyprivacy]');
 const schedulerSummary = app.querySelector('[data-scheduler-summary]');
 const schedulerPanel = app.querySelector('[data-scheduler-panel]');
 const ruleRefreshEnabled = app.querySelector('[data-rule-refresh-enabled]');
@@ -285,6 +299,9 @@ const state = {
     telemetryOptIn: false,
     diagnosticsOptIn: false,
   },
+  refresh: null,
+  refreshLoading: false,
+  refreshRunning: false,
 };
 
 function browserProfiles(snapshot) {
@@ -632,6 +649,62 @@ function renderSettings() {
   updateState.textContent = state.settings.updateState;
   telemetryOptIn.checked = state.settings.telemetryOptIn;
   diagnosticsOptIn.checked = state.settings.diagnosticsOptIn;
+}
+
+function renderRefresh() {
+  const snapshot = state.refresh;
+  if (!snapshot) {
+    refreshSummary.textContent = 'Loading EasyPrivacy refresh state...';
+    refreshPanel.classList.add('dimmed');
+    refreshEasyPrivacyButton.textContent = state.refreshRunning ? 'Refreshing...' : 'Refresh now';
+    refreshEasyPrivacyButton.disabled = state.refreshLoading || state.refreshRunning;
+    refreshPanel.innerHTML = '<p class="empty">Loading the current staged EasyPrivacy bundle.</p>';
+    return;
+  }
+
+  const staged = snapshot.stagedBundle ?? snapshot.staged_bundle;
+  const warnings = snapshot.warnings ?? [];
+  const source = staged?.source ?? {};
+  const ruleCount = staged?.ruleCount ?? staged?.rule_count ?? 0;
+  const shardCount = staged?.extensionShardCount ?? staged?.extension_shard_count ?? 0;
+  const shardLimit = staged?.shardSizeLimit ?? staged?.shard_size_limit ?? 30_000;
+
+  refreshPanel.classList.remove('dimmed');
+  refreshEasyPrivacyButton.textContent = state.refreshRunning ? 'Refreshing...' : 'Refresh now';
+  refreshEasyPrivacyButton.disabled = state.refreshLoading || state.refreshRunning;
+  refreshSummary.textContent = staged
+    ? `${ruleCount} rule(s) staged from EasyPrivacy.`
+    : 'No staged EasyPrivacy bundle yet.';
+
+  refreshPanel.innerHTML = `
+    ${warnings.length === 0
+      ? ''
+      : warnings.map((warning) => `<p class="row warning">${warning}</p>`).join('')}
+    <div class="row">
+      <strong>Last run</strong>
+      <p class="artifact-detail">${formatSchedulerTimestamp(snapshot.lastRunAtMs ?? snapshot.last_run_at_ms)}</p>
+    </div>
+    <div class="row">
+      <strong>Last result</strong>
+      <p class="artifact-detail">${formatSchedulerTaskResult(snapshot.lastResult ?? snapshot.last_result)}</p>
+    </div>
+    ${staged ? `
+      <div class="row">
+        <strong>Staged bundle</strong>
+        <div class="stack nested">
+          <p class="row">Version: ${staged.bundleVersion ?? staged.bundle_version}</p>
+          <p class="row">Generated at: ${staged.generatedAt ?? staged.generated_at}</p>
+          <p class="row">Rules: ${ruleCount}</p>
+          <p class="row">Extension shards: ${shardCount}</p>
+          <p class="row">Shard limit: ${shardLimit}</p>
+          <p class="row">Source: ${source.name ?? 'EasyPrivacy'} · ${source.license ?? 'unknown license'}</p>
+          <p class="row">Provenance: ${source.url ?? 'unknown source'}</p>
+          <p class="row">Attribution: ${source.attribution ?? 'unknown attribution'}</p>
+          <p class="row">Bundle path: ${staged.bundlePath ?? staged.bundle_path}</p>
+        </div>
+      </div>
+    ` : '<p class="empty">Run a refresh to stage the latest EasyPrivacy bundle locally.</p>'}
+  `;
 }
 
 function formatSchedulerTimestamp(timestampMs) {
@@ -1060,6 +1133,19 @@ async function loadSettings() {
   renderSettings();
 }
 
+async function loadRefresh() {
+  state.refreshLoading = true;
+  renderRefresh();
+
+  try {
+    state.refresh = await invoke('easyprivacy_refresh_snapshot', {});
+    renderRefresh();
+  } finally {
+    state.refreshLoading = false;
+    renderRefresh();
+  }
+}
+
 async function loadScheduler() {
   state.schedulerLoading = true;
   syncSchedulerControls();
@@ -1095,6 +1181,24 @@ async function saveScheduler() {
     state.schedulerSaving = false;
     syncSchedulerControls();
     renderScheduler();
+  }
+}
+
+async function refreshEasyPrivacy() {
+  state.refreshRunning = true;
+  renderRefresh();
+  setStatus('Refreshing EasyPrivacy and staging a validated bundle...');
+
+  try {
+    state.refresh = await invoke('refresh_easyprivacy_rules', {});
+    renderRefresh();
+    setStatus('EasyPrivacy refresh staged locally.');
+  } catch (error) {
+    setStatus(`EasyPrivacy refresh failed: ${error}`);
+    await loadRefresh();
+  } finally {
+    state.refreshRunning = false;
+    renderRefresh();
   }
 }
 
@@ -1410,6 +1514,12 @@ diagnosticsOptIn.addEventListener('change', () => {
   setDiagnosticsOptIn(diagnosticsOptIn.checked);
 });
 
+refreshEasyPrivacyButton.addEventListener('click', () => {
+  refreshEasyPrivacy().catch((error) => {
+    setStatus(`EasyPrivacy refresh failed: ${error}`);
+  });
+});
+
 ruleRefreshEnabled.addEventListener('change', () => {
   if (state.scheduler) {
     state.scheduler.ruleRefresh.enabled = ruleRefreshEnabled.checked;
@@ -1461,6 +1571,7 @@ registerListeners();
 setCleanupMode('review');
 lockResolution.value = state.cleanupLockResolution;
 renderSettings();
+renderRefresh();
 renderScheduler();
 renderRestorePreview();
 syncRestoreControls();
@@ -1471,6 +1582,10 @@ loadSettings().catch((error) => {
   state.settings.ruleBundleVersion = 'unavailable';
   state.settings.updateState = `Unavailable: ${error}`;
   renderSettings();
+});
+loadRefresh().catch((error) => {
+  refreshSummary.textContent = `EasyPrivacy refresh unavailable: ${error}`;
+  refreshPanel.innerHTML = '<p class="empty">Unable to load EasyPrivacy refresh state.</p>';
 });
 loadScheduler().catch((error) => {
   schedulerSummary.textContent = `Scheduled maintenance unavailable: ${error}`;
