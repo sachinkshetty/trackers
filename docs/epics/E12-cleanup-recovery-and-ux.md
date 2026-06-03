@@ -38,7 +38,7 @@ recovery path for destructive changes.
 - Partial restore results distinguish completed, skipped, and failed actions.
 
 ### E12-S05 Verify cleanup with an automatic rescan
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Cleanup triggers a lightweight rescan of affected profiles.
