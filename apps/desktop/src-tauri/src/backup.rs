@@ -530,4 +530,63 @@ mod tests {
         assert_eq!(restore_result.completed_ids.len(), 1);
         assert_eq!(std::fs::read_to_string(&cookies_path).unwrap(), "cookie-db-v2");
     }
+
+    #[test]
+    fn restore_cleanup_preview_skips_expired_backups() {
+        let temp = tempfile::tempdir().unwrap();
+        let profile_path = temp.path().join("Default");
+        std::fs::create_dir_all(profile_path.join("Network")).unwrap();
+        std::fs::write(profile_path.join("Network").join("Cookies"), "cookie-db").unwrap();
+
+        let scan = sample_scan(profile_path.clone());
+        let preview = sample_preview(profile_path);
+        let root = temp.path().join("backups");
+
+        let backups = create_cleanup_backups_for_path(&root, &scan, &preview, &[]).unwrap();
+        std::fs::remove_dir_all(&backups[0].backup_path).unwrap();
+
+        let restore_preview =
+            restore_cleanup_preview_for_path(&cleanup_backup_history_path_for_root(&root))
+                .unwrap();
+
+        assert!(restore_preview.records.is_empty());
+        assert!(
+            restore_preview
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("no longer available"))
+        );
+    }
+
+    #[test]
+    fn restore_cleanup_backups_report_partial_results() {
+        let temp = tempfile::tempdir().unwrap();
+        let profile_path = temp.path().join("Default");
+        std::fs::create_dir_all(profile_path.join("Network")).unwrap();
+        let cookies_path = profile_path.join("Network").join("Cookies");
+        std::fs::write(&cookies_path, "cookie-db").unwrap();
+
+        let scan = sample_scan(profile_path.clone());
+        let preview = sample_preview(profile_path.clone());
+        let root = temp.path().join("backups");
+
+        let backups = create_cleanup_backups_for_path(&root, &scan, &preview, &[]).unwrap();
+        std::fs::write(&cookies_path, "mutated").unwrap();
+        let missing_backup = CleanupBackupRecord {
+            action_id: "chrome|Default|cookie|missing".into(),
+            backup_path: temp.path().join("missing-backup"),
+            ..backups[0].clone()
+        };
+
+        let restore = restore_cleanup_backups_for_records(&[
+            backups[0].clone(),
+            missing_backup.clone(),
+        ])
+        .unwrap();
+
+        assert_eq!(restore.completed_ids, vec![backups[0].action_id.clone()]);
+        assert_eq!(restore.skipped_ids, vec![missing_backup.action_id]);
+        assert_eq!(restore.failed.len(), 1);
+        assert_eq!(std::fs::read_to_string(&cookies_path).unwrap(), "cookie-db");
+    }
 }
