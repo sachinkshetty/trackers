@@ -9,6 +9,11 @@ use crate::audit::{
     CleanupAuditHistory, clear_cleanup_audit_history as clear_cleanup_audit_history_snapshot,
     cleanup_audit_history as cleanup_audit_history_snapshot,
 };
+use crate::backup::{
+    CleanupRestoreExecuteResult, CleanupRestorePreviewResult,
+    restore_cleanup_backups as restore_cleanup_backups_snapshot,
+    restore_cleanup_preview as restore_cleanup_preview_snapshot,
+};
 use crate::scan::{
     CancellationFlag, ScanProgress, ScanRequest, ScanRunResult, embedded_rule_bundle, run_scan,
     scan_profile,
@@ -61,6 +66,34 @@ pub fn cleanup_audit_history() -> Result<CleanupAuditHistory, String> {
 #[tauri::command]
 pub fn clear_cleanup_audit_history() -> Result<(), String> {
     clear_cleanup_audit_history_snapshot()
+}
+
+#[tauri::command]
+pub fn restore_cleanup_preview(
+    state: State<'_, AppState>,
+) -> Result<CleanupRestorePreviewResult, String> {
+    let preview = restore_cleanup_preview_snapshot()?;
+    state.replace_restore_preview(preview.clone());
+    Ok(preview)
+}
+
+#[tauri::command]
+pub fn restore_cleanup(
+    state: State<'_, AppState>,
+    request: CleanupRestorePreviewResult,
+) -> Result<CleanupRestoreExecuteResult, String> {
+    let stored_preview = state
+        .latest_restore_preview()
+        .ok_or_else(|| "cleanup restore preview is not available".to_string())?;
+    if stored_preview != request {
+        return Err("cleanup restore preview is stale or was not issued by the backend".into());
+    }
+
+    let result = restore_cleanup_backups_snapshot(&request)?;
+    if result.failed.is_empty() {
+        state.clear_restore_preview();
+    }
+    Ok(result)
 }
 
 #[tauri::command]

@@ -30,7 +30,7 @@ recovery path for destructive changes.
 - Backup failure blocks destructive cleanup unless the user explicitly chooses a documented no-backup path.
 
 ### E12-S04 Add restore and undo workflow
-**Status:** todo
+**Status:** done
 
 **Acceptance criteria**
 - Users can restore the most recent supported cleanup within a documented retention window.

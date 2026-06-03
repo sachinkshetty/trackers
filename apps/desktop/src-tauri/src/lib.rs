@@ -20,6 +20,8 @@ pub fn run() {
             commands::execute_cleanup,
             commands::cleanup_audit_history,
             commands::clear_cleanup_audit_history,
+            commands::restore_cleanup_preview,
+            commands::restore_cleanup,
             commands::settings_snapshot
         ])
         .run(tauri::generate_context!())

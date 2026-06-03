@@ -26,6 +26,28 @@ pub struct CleanupBackupHistory {
     pub records: Vec<CleanupBackupRecord>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupRestorePreviewResult {
+    pub records: Vec<CleanupBackupRecord>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupRestoreFailure {
+    pub action_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupRestoreExecuteResult {
+    pub completed_ids: Vec<String>,
+    pub skipped_ids: Vec<String>,
+    pub failed: Vec<CleanupRestoreFailure>,
+}
+
 pub fn create_cleanup_backups(
     scan: &ScanRunResult,
     preview: &CleanupPreviewResult,
@@ -80,6 +102,54 @@ pub fn cleanup_backup_history() -> Result<CleanupBackupHistory, String> {
 
 pub fn clear_cleanup_backup_history() -> Result<(), String> {
     clear_cleanup_backup_history_for_path(&cleanup_backup_history_path())
+}
+
+pub fn restore_cleanup_preview() -> Result<CleanupRestorePreviewResult, String> {
+    restore_cleanup_preview_for_path(&cleanup_backup_history_path())
+}
+
+pub fn restore_cleanup_preview_for_path(path: &Path) -> Result<CleanupRestorePreviewResult, String> {
+    let history = load_cleanup_backup_history_for_path(path)?;
+    Ok(latest_restore_candidates(history))
+}
+
+pub fn restore_cleanup_backups(
+    preview: &CleanupRestorePreviewResult,
+) -> Result<CleanupRestoreExecuteResult, String> {
+    restore_cleanup_backups_for_records(&preview.records)
+}
+
+pub fn restore_cleanup_backups_for_records(
+    records: &[CleanupBackupRecord],
+) -> Result<CleanupRestoreExecuteResult, String> {
+    let mut completed_ids = Vec::new();
+    let mut skipped_ids = Vec::new();
+    let mut failed = Vec::new();
+
+    for record in records {
+        if !record.backup_path.exists() {
+            skipped_ids.push(record.action_id.clone());
+            failed.push(CleanupRestoreFailure {
+                action_id: record.action_id.clone(),
+                message: format!("backup '{}' no longer exists", record.backup_path.display()),
+            });
+            continue;
+        }
+
+        match restore_backup_record(record) {
+            Ok(()) => completed_ids.push(record.action_id.clone()),
+            Err(message) => failed.push(CleanupRestoreFailure {
+                action_id: record.action_id.clone(),
+                message,
+            }),
+        }
+    }
+
+    Ok(CleanupRestoreExecuteResult {
+        completed_ids,
+        skipped_ids,
+        failed,
+    })
 }
 
 pub fn load_cleanup_backup_history_for_path(path: &Path) -> Result<CleanupBackupHistory, String> {
@@ -138,6 +208,78 @@ fn write_cleanup_backup_history(path: &Path, history: &CleanupBackupHistory) -> 
     }
     let json = serde_json::to_string_pretty(history).map_err(|error| error.to_string())?;
     std::fs::write(path, json).map_err(|error| error.to_string())
+}
+
+fn latest_restore_candidates(history: CleanupBackupHistory) -> CleanupRestorePreviewResult {
+    let mut warnings = Vec::new();
+    let mut latest_by_action = std::collections::BTreeMap::new();
+
+    for record in history.records {
+        latest_by_action.insert(record.action_id.clone(), record);
+    }
+
+    let mut records = latest_by_action
+        .into_values()
+        .filter(|record| {
+            if record.backup_path.exists() {
+                true
+            } else {
+                warnings.push(format!(
+                    "backup '{}' is no longer available",
+                    record.backup_path.display()
+                ));
+                false
+            }
+        })
+        .collect::<Vec<_>>();
+
+    records.sort_by(|left, right| {
+        right
+            .timestamp_ms
+            .cmp(&left.timestamp_ms)
+            .then_with(|| left.action_id.cmp(&right.action_id))
+    });
+
+    if records.is_empty() && warnings.is_empty() {
+        warnings.push("No cleanup backups are available for restore.".into());
+    }
+
+    CleanupRestorePreviewResult { records, warnings }
+}
+
+fn restore_backup_record(record: &CleanupBackupRecord) -> Result<(), String> {
+    if !record.backup_path.exists() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(&record.backup_path).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let source_path = entry.path();
+        let destination_path = record.profile_path.join(entry.file_name());
+        restore_path(&source_path, &destination_path)?;
+    }
+
+    Ok(())
+}
+
+fn restore_path(source: &Path, destination: &Path) -> Result<(), String> {
+    if destination.exists() {
+        if destination.is_dir() {
+            std::fs::remove_dir_all(destination).map_err(|error| error.to_string())?;
+        } else {
+            std::fs::remove_file(destination).map_err(|error| error.to_string())?;
+        }
+    }
+
+    if source.is_dir() {
+        copy_directory(source, destination)
+    } else {
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        std::fs::copy(source, destination).map_err(|error| error.to_string())?;
+        Ok(())
+    }
 }
 
 fn snapshot_action_target(
@@ -348,5 +490,44 @@ mod tests {
             .unwrap_err();
 
         assert!(!error.is_empty());
+    }
+
+    #[test]
+    fn restore_cleanup_preview_selects_latest_backup_and_restore_applies_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let profile_path = temp.path().join("Default");
+        std::fs::create_dir_all(profile_path.join("Network")).unwrap();
+        let cookies_path = profile_path.join("Network").join("Cookies");
+
+        std::fs::write(&cookies_path, "cookie-db-v1").unwrap();
+        let scan = sample_scan(profile_path.clone());
+        let preview = sample_preview(profile_path.clone());
+        let root = temp.path().join("backups");
+
+        create_cleanup_backups_for_path(&root, &scan, &preview, &[]).unwrap();
+        std::fs::write(&cookies_path, "cookie-db-v2").unwrap();
+        create_cleanup_backups_for_path(&root, &scan, &preview, &[]).unwrap();
+
+        let restore_preview =
+            restore_cleanup_preview_for_path(&cleanup_backup_history_path_for_root(&root))
+                .unwrap();
+
+        assert_eq!(restore_preview.records.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(
+                restore_preview.records[0]
+                    .backup_path
+                    .join("Network")
+                    .join("Cookies")
+            )
+            .unwrap(),
+            "cookie-db-v2"
+        );
+
+        std::fs::write(&cookies_path, "mutated").unwrap();
+        let restore_result = restore_cleanup_backups_for_records(&restore_preview.records).unwrap();
+
+        assert_eq!(restore_result.completed_ids.len(), 1);
+        assert_eq!(std::fs::read_to_string(&cookies_path).unwrap(), "cookie-db-v2");
     }
 }
