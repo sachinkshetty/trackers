@@ -189,6 +189,12 @@
           "markdownDescription": "Enables the discover_profiles command without any pre-configured scope."
         },
         {
+          "description": "Enables the easyprivacy_refresh_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-easyprivacy-refresh-snapshot",
+          "markdownDescription": "Enables the easyprivacy_refresh_snapshot command without any pre-configured scope."
+        },
+        {
           "description": "Enables the execute_cleanup command without any pre-configured scope.",
           "type": "string",
           "const": "allow-execute-cleanup",
@@ -199,6 +205,18 @@
           "type": "string",
           "const": "allow-preview-cleanup",
           "markdownDescription": "Enables the preview_cleanup command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the refresh_easyprivacy_rules command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-refresh-easyprivacy-rules",
+          "markdownDescription": "Enables the refresh_easyprivacy_rules command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the scheduler_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-scheduler-snapshot",
+          "markdownDescription": "Enables the scheduler_snapshot command without any pre-configured scope."
         },
         {
           "description": "Enables the settings_snapshot command without any pre-configured scope.",
@@ -213,6 +231,12 @@
           "markdownDescription": "Enables the start_scan command without any pre-configured scope."
         },
         {
+          "description": "Enables the update_scheduler_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-scheduler-settings",
+          "markdownDescription": "Enables the update_scheduler_settings command without any pre-configured scope."
+        },
+        {
           "description": "Denies the cancel_scan command without any pre-configured scope.",
           "type": "string",
           "const": "deny-cancel-scan",
@@ -223,6 +247,12 @@
           "type": "string",
           "const": "deny-discover-profiles",
           "markdownDescription": "Denies the discover_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the easyprivacy_refresh_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-easyprivacy-refresh-snapshot",
+          "markdownDescription": "Denies the easyprivacy_refresh_snapshot command without any pre-configured scope."
         },
         {
           "description": "Denies the execute_cleanup command without any pre-configured scope.",
@@ -237,6 +267,18 @@
           "markdownDescription": "Denies the preview_cleanup command without any pre-configured scope."
         },
         {
+          "description": "Denies the refresh_easyprivacy_rules command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-refresh-easyprivacy-rules",
+          "markdownDescription": "Denies the refresh_easyprivacy_rules command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the scheduler_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-scheduler-snapshot",
+          "markdownDescription": "Denies the scheduler_snapshot command without any pre-configured scope."
+        },
+        {
           "description": "Denies the settings_snapshot command without any pre-configured scope.",
           "type": "string",
           "const": "deny-settings-snapshot",
@@ -247,6 +289,12 @@
           "type": "string",
           "const": "deny-start-scan",
           "markdownDescription": "Denies the start_scan command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_scheduler_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-scheduler-settings",
+          "markdownDescription": "Denies the update_scheduler_settings command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
