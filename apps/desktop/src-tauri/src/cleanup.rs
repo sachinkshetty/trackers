@@ -1,6 +1,7 @@
 use scanner_core::{
-    AggressiveConfirmation, BrowserCloser, BrowserFamily, CleanupExecutionResult, CleanupMode,
-    CleanupPlan, CleanupTarget, Finding, LockResolution, PreflightResult, ResourceLockProbe,
+    AggressiveConfirmation, BrowserCloser, BrowserFamily, BrowserProfile, CleanupExecutionResult,
+    CleanupMode, CleanupPlan, CleanupTarget, Finding, LockResolution, PreflightResult,
+    ResourceLockProbe,
     execute_cleanup as execute_cleanup_plan, plan_aggressive_cleanup, plan_balanced_cleanup,
     plan_review_cleanup, preflight_locked_resources,
 };
@@ -14,7 +15,7 @@ use std::{
 use crate::backend::DesktopBootstrap;
 use crate::audit::record_cleanup_audit;
 use crate::backup::cleanup_backup_root;
-use crate::scan::ScanRunResult;
+use crate::scan::{ScanRunResult, embedded_rule_bundle, scan_profile};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,7 +67,28 @@ pub struct CleanupExecuteResult {
     pub execution: CleanupExecutionResult,
     pub locked_action_ids: Vec<String>,
     pub locked_profiles: Vec<CleanupLockedProfile>,
+    pub verification: Option<CleanupVerificationResult>,
     pub status: CleanupExecutionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupVerificationProfileResult {
+    pub browser: BrowserFamily,
+    pub profile_name: String,
+    pub profile_path: PathBuf,
+    pub detected_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupVerificationResult {
+    pub profiles: Vec<CleanupVerificationProfileResult>,
+    pub removed_ids: Vec<String>,
+    pub skipped_ids: Vec<String>,
+    pub still_detected_ids: Vec<String>,
+    pub failed_ids: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +227,15 @@ fn execute_cleanup_with_backup_root(
             CleanupExecutionResult::default(),
         ),
     };
+    let verification = if matches!(status, CleanupExecutionStatus::Completed) {
+        Some(build_cleanup_verification(
+            state.latest_discovery().as_ref(),
+            &request.preview,
+            &execution,
+        ))
+    } else {
+        None
+    };
 
     if matches!(status, CleanupExecutionStatus::Completed) {
         state.clear_cleanup_preview();
@@ -214,6 +245,7 @@ fn execute_cleanup_with_backup_root(
         execution: execution.clone(),
         locked_action_ids: request.preview.locked_action_ids.clone(),
         locked_profiles: request.preview.locked_profiles.clone(),
+        verification: verification.clone(),
         status: status.clone(),
     };
     let _ = record_cleanup_audit(&scan, &request.preview, &audit_result, &status);
@@ -222,6 +254,7 @@ fn execute_cleanup_with_backup_root(
         execution,
         locked_action_ids: request.preview.locked_action_ids,
         locked_profiles: request.preview.locked_profiles,
+        verification,
         status,
     })
 }
@@ -297,6 +330,122 @@ fn discovered_profile_paths(discovery: &DesktopBootstrap) -> Result<BTreeSet<Pat
         profiles.insert(canonical);
     }
     Ok(profiles)
+}
+
+fn build_cleanup_verification(
+    discovery: Option<&DesktopBootstrap>,
+    preview: &CleanupPreviewResult,
+    execution: &CleanupExecutionResult,
+) -> CleanupVerificationResult {
+    let mut verification = CleanupVerificationResult {
+        skipped_ids: execution.skipped_ids.clone(),
+        failed_ids: execution.failed.iter().map(|failure| failure.id.clone()).collect(),
+        ..CleanupVerificationResult::default()
+    };
+    let Some(discovery) = discovery else {
+        verification
+            .warnings
+            .push("Cleanup verification skipped because no discovery snapshot is available.".into());
+        return verification;
+    };
+
+    let mut profile_actions: std::collections::BTreeMap<PathBuf, Vec<&scanner_core::CleanupAction>> =
+        std::collections::BTreeMap::new();
+    for action in &preview.plan.actions {
+        match profile_for_action(&action.target, discovery) {
+            Some(profile) => {
+                profile_actions
+                    .entry(profile.profile_path.clone())
+                    .or_default()
+                    .push(action);
+            }
+            None => verification.warnings.push(format!(
+                "Cleanup verification could not match action '{}' to a discovered profile.",
+                action.id
+            )),
+        }
+    }
+
+    let completed_ids = execution
+        .completed_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let skipped_ids = execution
+        .skipped_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let failed_ids = execution
+        .failed
+        .iter()
+        .map(|failure| failure.id.clone())
+        .collect::<BTreeSet<_>>();
+    let bundle = embedded_rule_bundle();
+
+    for profile in discovery
+        .chrome
+        .profiles
+        .iter()
+        .chain(discovery.edge.profiles.iter())
+    {
+        let Some(actions) = profile_actions.get(&profile.profile_path) else {
+            continue;
+        };
+        let scan = scan_profile(profile, &bundle);
+        let detected_ids = scan
+            .findings
+            .iter()
+            .map(|finding| finding.id.clone())
+            .collect::<BTreeSet<_>>();
+        verification.profiles.push(CleanupVerificationProfileResult {
+            browser: profile.browser,
+            profile_name: profile.profile_name.clone(),
+            profile_path: profile.profile_path.clone(),
+            detected_ids: detected_ids.iter().cloned().collect(),
+        });
+
+        for action in actions {
+            if failed_ids.contains(&action.id) {
+                continue;
+            }
+            if skipped_ids.contains(&action.id) {
+                continue;
+            }
+            if completed_ids.contains(&action.id) {
+                if detected_ids.contains(&action.id) {
+                    verification.still_detected_ids.push(action.id.clone());
+                } else {
+                    verification.removed_ids.push(action.id.clone());
+                }
+            }
+        }
+    }
+
+    verification
+}
+
+fn profile_for_action<'a>(
+    target: &CleanupTarget,
+    discovery: &'a DesktopBootstrap,
+) -> Option<&'a BrowserProfile> {
+    match target {
+        CleanupTarget::CookieHost { profile_path, .. }
+        | CleanupTarget::IndexedDbOrigin { profile_path, .. } => {
+            discovery
+                .chrome
+                .profiles
+                .iter()
+                .chain(discovery.edge.profiles.iter())
+                .find(|profile| profile.profile_path == *profile_path)
+        }
+        CleanupTarget::ProfileArtifact { path } => discovery
+            .chrome
+            .profiles
+            .iter()
+            .chain(discovery.edge.profiles.iter())
+            .find(|profile| path.starts_with(&profile.profile_path)),
+    }
 }
 
 fn detect_locked_actions(
@@ -1106,5 +1255,72 @@ mod tests {
         assert!(matches!(result.status, CleanupExecutionStatus::Completed));
         assert_eq!(result.execution.completed_ids.len(), 1);
         assert!(!cache_entry.exists());
+    }
+
+    #[test]
+    fn execute_cleanup_reports_removed_tracker_findings_after_verification_rescan() {
+        let temp = tempfile::tempdir().unwrap();
+        let profile = profile(&temp);
+        let cache_path = profile.profile_path.join("Cache");
+        std::fs::create_dir_all(&cache_path).unwrap();
+        let cache_entry = cache_path.join("entry");
+        std::fs::write(&cache_entry, "cached").unwrap();
+
+        let state = AppState::default();
+        state.replace_discovery(discovery_snapshot(&profile));
+        state.replace_scan(scan_snapshot(
+            &profile,
+            vec![Finding {
+                id: "chrome|Default|cache|local-cache".into(),
+                profile: profile.clone(),
+                artifact_type: ArtifactType::Cache,
+                site: None,
+                classification: None,
+                evidence_summary: "cache directory is present in the browser profile".into(),
+                confidence: None,
+                cleanup_impact: scanner_core::CleanupImpact::ReviewRequired,
+            }],
+        ));
+
+        let preview = CleanupPreviewResult {
+            plan: CleanupPlan {
+                mode: CleanupMode::Review,
+                warnings: vec![],
+                estimated_action_count: 1,
+                actions: vec![scanner_core::CleanupAction {
+                    id: "chrome|Default|cache|local-cache".into(),
+                    artifact_type: ArtifactType::Cache,
+                    target: scanner_core::CleanupTarget::ProfileArtifact {
+                        path: cache_entry.clone(),
+                    },
+                    requires_browser_closed: true,
+                }],
+            },
+            locked_action_ids: vec![],
+            locked_profiles: vec![],
+            requires_confirmation: false,
+            warnings: vec![],
+        };
+        state.replace_cleanup_preview(preview.clone());
+
+        let result = execute_cleanup(
+            &state,
+            CleanupExecuteRequest {
+                preview,
+                lock_resolution: CleanupLockResolution::SkipLocked,
+                allow_no_backup: true,
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(result.status, CleanupExecutionStatus::Completed), "{:?}", result.status);
+        assert_eq!(result.execution.completed_ids.len(), 1);
+        let verification = result.verification.expect("verification summary");
+        assert_eq!(verification.removed_ids, vec!["chrome|Default|cache|local-cache"]);
+        assert!(verification.still_detected_ids.is_empty());
+        assert!(verification
+            .profiles
+            .iter()
+            .any(|profile| profile.profile_name == "Default"));
     }
 }

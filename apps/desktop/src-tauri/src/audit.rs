@@ -300,6 +300,7 @@ mod tests {
             },
             locked_action_ids: vec![],
             locked_profiles: vec![],
+            verification: None,
             status: crate::cleanup::CleanupExecutionStatus::Completed,
         };
 
@@ -319,6 +320,7 @@ mod tests {
             execution: CleanupExecutionResult::default(),
             locked_action_ids: vec![],
             locked_profiles: vec![],
+            verification: None,
             status: crate::cleanup::CleanupExecutionStatus::RetryAfterClose,
         };
 

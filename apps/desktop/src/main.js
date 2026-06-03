@@ -521,19 +521,40 @@ function renderCleanupPreview() {
       </div>
     </div>
     ${state.cleanupExecution ? `
-      <div class="row">
-        <strong>Cleanup result</strong>
-        <div class="stack nested">
-          <p class="row">Completed: ${(state.cleanupExecution.execution.completedIds ?? state.cleanupExecution.execution.completed_ids ?? []).length}</p>
-          <p class="row">Skipped: ${(state.cleanupExecution.execution.skippedIds ?? state.cleanupExecution.execution.skipped_ids ?? []).length}</p>
-          <p class="row">Failed: ${(state.cleanupExecution.execution.failed ?? []).length}</p>
-          ${(state.cleanupExecution.execution.failed ?? []).length === 0
-            ? ''
-            : (state.cleanupExecution.execution.failed ?? [])
-                .map((failure) => `<p class="row warning">${failure.id}: ${failure.message}</p>`)
-                .join('')}
-        </div>
+    <div class="row">
+      <strong>Cleanup result</strong>
+      <div class="stack nested">
+        <p class="row">Completed: ${(state.cleanupExecution.execution.completedIds ?? state.cleanupExecution.execution.completed_ids ?? []).length}</p>
+        <p class="row">Skipped: ${(state.cleanupExecution.execution.skippedIds ?? state.cleanupExecution.execution.skipped_ids ?? []).length}</p>
+        <p class="row">Failed: ${(state.cleanupExecution.execution.failed ?? []).length}</p>
+        ${(state.cleanupExecution.execution.failed ?? []).length === 0
+          ? ''
+          : (state.cleanupExecution.execution.failed ?? [])
+              .map((failure) => `<p class="row warning">${failure.id}: ${failure.message}</p>`)
+              .join('')}
+        ${state.cleanupExecution.verification ? `
+          <div class="row">
+            <strong>Verification</strong>
+            <div class="stack nested">
+              <p class="row">Removed: ${(state.cleanupExecution.verification.removedIds ?? state.cleanupExecution.verification.removed_ids ?? []).length}</p>
+              <p class="row">Skipped: ${(state.cleanupExecution.verification.skippedIds ?? state.cleanupExecution.verification.skipped_ids ?? []).length}</p>
+              <p class="row">Still detected: ${(state.cleanupExecution.verification.stillDetectedIds ?? state.cleanupExecution.verification.still_detected_ids ?? []).length}</p>
+              <p class="row">Failed: ${(state.cleanupExecution.verification.failedIds ?? state.cleanupExecution.verification.failed_ids ?? []).length}</p>
+              ${(state.cleanupExecution.verification.warnings ?? []).length === 0
+                ? ''
+                : (state.cleanupExecution.verification.warnings ?? [])
+                    .map((warning) => `<p class="row warning">${warning}</p>`)
+                    .join('')}
+              ${((state.cleanupExecution.verification.stillDetectedIds ?? state.cleanupExecution.verification.still_detected_ids ?? []).length === 0
+                ? ''
+                : (state.cleanupExecution.verification.stillDetectedIds ?? state.cleanupExecution.verification.still_detected_ids ?? [])
+                    .map((id) => `<p class="row warning">Still detected: ${id}</p>`)
+                    .join(''))}
+            </div>
+          </div>
+        ` : ''}
       </div>
+    </div>
     ` : ''}
   `;
 }
@@ -1040,8 +1061,12 @@ async function executeCleanup() {
 
   const execution = result.execution;
   const skippedIds = execution.skippedIds ?? execution.skipped_ids ?? [];
+  const verification = result.verification ?? {};
+  const stillDetectedIds = verification.stillDetectedIds ?? verification.still_detected_ids ?? [];
   if (execution.failed.length > 0) {
     setStatus(`Cleanup finished with ${execution.failed.length} failure(s).`);
+  } else if (stillDetectedIds.length > 0) {
+    setStatus(`Cleanup finished, but ${stillDetectedIds.length} tracker artifact(s) remain detected.`);
   } else if (skippedIds.length > 0) {
     setStatus(`Cleanup finished with ${skippedIds.length} skipped action(s).`);
   } else {
